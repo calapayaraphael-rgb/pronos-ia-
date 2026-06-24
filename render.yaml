@@ -1,0 +1,57 @@
+# Render Blueprint — déploie le backend + une base PostgreSQL.
+# Dans Render : New → Blueprint → sélectionne ce dépôt. Render lira ce fichier.
+# Les variables marquées sync:false seront demandées au moment du déploiement.
+
+databases:
+  - name: pronos-db
+    plan: free            # gratuit (expire après 90 jours) ; passe en "starter" pour la durée
+    databaseName: pronos
+    user: pronos
+
+services:
+  - type: web
+    name: pronos-backend
+    runtime: node
+    plan: free            # ⚠️ le plan free se met en veille : voir note CLV dans le README
+    rootDir: pronos-backend
+    buildCommand: npm install
+    startCommand: npm run migrate && npm start
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+            name: pronos-db
+            property: connectionString
+      - key: JWT_SECRET
+        generateValue: true        # généré automatiquement par Render
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      - key: JOBS_ENABLED
+        value: "true"
+      - key: ODDS_API_KEY
+        sync: false                # OBLIGATOIRE — demandé au déploiement
+      - key: TRACKED_SPORTS
+        value: soccer_france_ligue_one,basketball_nba
+      - key: ODDS_REGIONS
+        value: eu
+      - key: ANTHROPIC_API_KEY
+        sync: false                # optionnel (avis IA)
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-6
+      - key: CORS_ORIGINS
+        sync: false                # mets ici l'URL Vercel exacte (https, sans / final)
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        sync: false                # ton email admin
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false                # ton mot de passe admin (fort)
+      - key: MIN_RELIABILITY
+        value: "60"
+      - key: MIN_EV
+        value: "0.02"
+      - key: MAX_RISK
+        value: moyen
+      - key: START_BANKROLL
+        value: "100"

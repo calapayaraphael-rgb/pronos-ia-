@@ -1,0 +1,13 @@
+# dépendances
+**/node_modules/
+# build
+pronos-web/dist/
+# env (ne jamais committer les secrets)
+**/.env
+**/.env.local
+**/.env.*.local
+# postgres local (docker volume nommé, mais au cas où)
+pgdata/
+# logs / divers
+*.log
+.DS_Store

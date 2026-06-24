@@ -1,0 +1,28 @@
+:root {
+  --bg: #0B0E14;
+  --gold: #E0A33E;
+  --teal: #3FB7A6;
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: #E8E6DF;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+input, button, select, textarea { font-family: inherit; }
+input[type="range"] { accent-color: var(--gold); }
+button { -webkit-tap-highlight-color: transparent; }
+a { color: inherit; }
+
+/* zone sûre iOS pour la barre de navigation basse */
+.safe-bottom { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+.nav-safe { padding-bottom: env(safe-area-inset-bottom); }
+
+::-webkit-scrollbar { width: 0; height: 0; }
+
+@keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+.spin { animation: spin 1s linear infinite; }
