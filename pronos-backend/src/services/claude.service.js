@@ -2,7 +2,7 @@
 // JSON strict en sortie. Si l'appel echoue, l'appelant garde le calcul
 // algorithmique et marque analysis_source = "engine_only".
 
-import { config } from "../config.js";
+import { hasAI, anthropicKey, claudeModel } from "./settings.service.js";
 
 // Formulations interdites (pari responsable) : jamais affichees telles quelles.
 const FORBIDDEN = [
@@ -66,16 +66,16 @@ RÈGLES ABSOLUES :
 //   bestOdds, bestBookmaker, bookmakers, consensusOdds, fairProbability,
 //   edgePercent, oddsMovement?, trackRecord? }
 export async function analyzePrediction(context) {
-  if (!config.hasAI) return null;
+  if (!hasAI()) return null;
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-api-key": config.ANTHROPIC_API_KEY,
+      "x-api-key": anthropicKey(),
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: config.ANTHROPIC_MODEL,
+      model: claudeModel(),
       max_tokens: 1024,
       system: SYSTEM,
       messages: [{ role: "user", content: `Pronostic candidat (données réelles) :\n${JSON.stringify(context)}\nRéponds avec l'objet JSON demandé.` }],
@@ -85,4 +85,26 @@ export async function analyzePrediction(context) {
   const data = await res.json();
   const txt = (data.content || []).map((b) => (b.type === "text" ? b.text : "")).join("\n");
   return normalizeAiVerdict(parseClaudeJson(txt));
+}
+
+// Test minimal de la cle Claude effective (1 appel, quelques tokens).
+// Ne renvoie jamais la cle — seulement ok/erreur.
+export async function testAnthropicKey() {
+  if (!hasAI()) return { ok: false, error: "Aucune clé Claude configurée (Render Environment ou page Admin)." };
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": anthropicKey(), "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: claudeModel(), max_tokens: 8, messages: [{ role: "user", content: "Réponds uniquement : OK" }] }),
+    });
+    if (!res.ok) {
+      const body = (await res.text()).slice(0, 160);
+      if (res.status === 401) return { ok: false, error: "Clé Claude refusée (401) : vérifiez la valeur." };
+      if (res.status === 404) return { ok: false, error: `Modèle « ${claudeModel()} » introuvable (404) : vérifiez CLAUDE_MODEL.` };
+      return { ok: false, error: `Claude ${res.status}: ${body}` };
+    }
+    return { ok: true, model: claudeModel() };
+  } catch (e) {
+    return { ok: false, error: `Appel Claude impossible : ${e.message}` };
+  }
 }

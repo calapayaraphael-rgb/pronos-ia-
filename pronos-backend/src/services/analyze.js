@@ -3,6 +3,7 @@ import { analyzeWithClaude } from "../lib/claude.js";
 import { fetchTeamNews } from "../providers/injuries.js";
 import { evMetrics, reliabilityScore, riskLevel, validate } from "../lib/analysis.js";
 import { computeMetrics, passesFilters } from "./predictionEngine.service.js";
+import { hasAI, claudeModel } from "./settings.service.js";
 import { config } from "../config.js";
 import { log } from "../logger.js";
 
@@ -71,7 +72,7 @@ export async function analyzeMatches(matchIds, { reason } = {}) {
 
   // Appel IA groupe (si configure)
   let aiByMatch = {};
-  if (config.hasAI) {
+  if (hasAI()) {
     const track = await trackString();
     const payload = contexts.slice(0, 10).map(({ m, cons, news }) => ({
       id: m.id, ligue: m.league, equipe_domicile: m.home_team, equipe_exterieur: m.away_team, debut: m.commence_time,
@@ -132,7 +133,7 @@ export async function analyzeMatches(matchIds, { reason } = {}) {
         [m.id, version, pick.outcome, pick.bestOdds, pick.consensusOdds, ev.impliedProb, pick.fairProb, estProb,
          ev.evSubjective, ev.evObjective, confidence, risk, rel.score, ai?.recommendation || null,
          ai?.summary || null, ai?.rationale || null, JSON.stringify(ai?.key_factors || []), JSON.stringify(ai?.data_gaps || []),
-         config.hasAI ? config.ANTHROPIC_MODEL : null, aiOn ? "IA" : "marché", proposed, JSON.stringify(rejectReasons),
+         aiOn ? claudeModel() : null, aiOn ? "IA" : "marché", proposed, JSON.stringify(rejectReasons),
          eng.edgePercent, eng.valueScore, eng.stakeUnits, eng.kellyFraction, pick.bestBook || null, JSON.stringify(warnings),
          aiOn ? "ai" : "engine_only"]
       );

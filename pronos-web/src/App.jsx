@@ -326,6 +326,7 @@ function EmptyDiagnostic({ onRetry, isAdmin }) {
 
   const causes = [];
   if (h) {
+    if (h.dbConnected === false) causes.push("Base PostgreSQL non connectée : vérifiez DATABASE_URL sur Render");
     if (!h.oddsApiConfigured) causes.push(h.oddsKeyPresent ? "ODDS_API_KEY présente mais au format invalide (vérifiez le copier-coller dans Render)" : "Clé ODDS_API_KEY absente sur le backend");
     if (h.quotaRemaining != null && h.quotaRemaining <= 0) causes.push("Quota The Odds API épuisé");
     if (h.lastSyncStatus === "error") causes.push("La dernière synchronisation a échoué");
@@ -661,7 +662,13 @@ function AdminScreen() {
     finally { setBusy(""); load(); }
   };
 
-  if (err) return <div style={{ padding: 16 }}><Banner text={err} /></div>;
+  if (err) return (
+    <div style={{ padding: 16 }}>
+      <Banner text={err.includes("injoignable") ? "Backend non joignable ou endormi (Render free) : réessayez dans ~30 secondes." : err} />
+      <div style={{ fontSize: 11, color: C.faint, fontFamily: mono, marginTop: 8, wordBreak: "break-all" }}>Backend utilisé : {api.base}</div>
+      <button onClick={load} style={{ ...primary, marginTop: 12 }}><RefreshCw size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />Réessayer</button>
+    </div>
+  );
   if (!status) return <div style={{ padding: 24, color: C.muted }}>Chargement…</div>;
 
   return (
@@ -673,6 +680,8 @@ function AdminScreen() {
           <span style={{ color: C.faint }}>Backend utilisé : </span>{api.base}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+          <Tile label="DATABASE_URL" value={status.databaseConfigured ? "configurée" : "absente"} color={status.databaseConfigured ? C.green : C.danger} />
+          <Tile label="Base PostgreSQL" value={status.dbConnected ? "connectée" : "non connectée"} color={status.dbConnected ? C.green : C.danger} />
           <Tile label="ODDS_API_KEY" value={status.oddsApiConfigured ? "configurée" : status.oddsKeyPresent ? "invalide" : "absente"} color={status.oddsApiConfigured ? C.green : C.danger} />
           <Tile label="ANTHROPIC_API_KEY" value={status.anthropicConfigured ? "configurée" : status.anthropicKeyPresent ? "invalide" : "absente"} color={status.anthropicConfigured ? C.green : C.warn} />
           <Tile label="Modèle IA" value={status.model || "engine only"} />
@@ -682,6 +691,9 @@ function AdminScreen() {
         </div>
         <div style={{ fontSize: 11, color: C.faint, marginTop: 10, lineHeight: 1.5 }}>Sports suivis : {status.trackedSports.join(", ")}</div>
       </div>
+
+      {/* configuration des cles API depuis l'application */}
+      <ApiConfigCard onSaved={load} />
 
       {/* donnees */}
       <div style={{ marginTop: 14, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 14 }}>
@@ -729,6 +741,129 @@ function AdminScreen() {
         </div>
       ))}
       <Disclaimer />
+    </div>
+  );
+}
+
+/* ============ Admin : configuration des clés API ============ */
+// Les clés sont envoyées au backend (stockage chiffré en PostgreSQL) et ne
+// sont JAMAIS conservées côté client ni réaffichées. Les variables Render
+// Environment restent prioritaires sur les valeurs saisies ici.
+const SOURCE_LABEL = { env: "Render Environment", app: "enregistrée depuis Admin", none: "non configurée", default: "valeur par défaut" };
+
+function KeyStatusLine({ label, st }) {
+  const color = st.configured ? C.green : st.present ? C.warn : C.danger;
+  const text = st.configured ? `configurée (${SOURCE_LABEL[st.source]})` : st.present ? "présente mais invalide" : "absente";
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, fontFamily: mono, padding: "4px 0" }}>
+      <span style={{ color: C.faint }}>{label}</span>
+      <span style={{ color, display: "inline-flex", alignItems: "center", gap: 4 }}>
+        {st.configured ? <CircleCheck size={12} /> : <CircleX size={12} />}{text}
+      </span>
+    </div>
+  );
+}
+
+function KeyEditor({ placeholder, saveLabel, testLabel, onSave, onTest, disabled, disabledNote }) {
+  const [val, setVal] = useState("");
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState(null); // { ok, text }
+
+  const save = async () => {
+    setBusy("save"); setMsg(null);
+    try { await onSave(val.trim()); setVal(""); setMsg({ ok: true, text: "Sauvegardé. La clé n'est jamais réaffichée." }); }
+    catch (e) { setMsg({ ok: false, text: e.message }); }
+    finally { setBusy(""); }
+  };
+  const test = async () => {
+    setBusy("test"); setMsg(null);
+    try { const r = await onTest(); setMsg({ ok: true, text: r }); }
+    catch (e) { setMsg({ ok: false, text: e.message }); }
+    finally { setBusy(""); }
+  };
+
+  return (
+    <div style={{ marginTop: 6 }}>
+      {disabled ? (
+        <div style={{ fontSize: 11, color: C.faint, lineHeight: 1.5 }}>{disabledNote}</div>
+      ) : (
+        <div style={{ display: "flex", gap: 6 }}>
+          <input type="password" autoComplete="off" value={val} onChange={(e) => setVal(e.target.value)} placeholder={placeholder}
+            style={{ ...input, flex: 1, padding: "9px 11px", fontSize: 13 }} />
+          <button onClick={save} disabled={!val.trim() || !!busy} style={{ ...adminBtn, opacity: !val.trim() || busy ? 0.6 : 1, whiteSpace: "nowrap" }}>{busy === "save" ? "…" : saveLabel}</button>
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
+        <button onClick={test} disabled={!!busy} style={{ ...mini, opacity: busy ? 0.6 : 1 }}>{busy === "test" ? "Test…" : testLabel}</button>
+        {msg && <span style={{ fontSize: 11, color: msg.ok ? C.green : C.danger, lineHeight: 1.4 }}>{msg.text}</span>}
+      </div>
+    </div>
+  );
+}
+
+function ApiConfigCard({ onSaved }) {
+  const [st, setSt] = useState(null);
+  const [model, setModel] = useState("");
+  const [modelMsg, setModelMsg] = useState(null);
+  const [err, setErr] = useState("");
+
+  const load = useCallback(async () => {
+    setErr("");
+    try { const s = await api.get("/admin/config/status"); setSt(s); setModel(s.model.value || ""); }
+    catch (e) { setErr(e.message); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const after = async () => { await load(); onSaved && onSaved(); };
+  const saveKey = (path) => async (key) => { await api.post(path, { key }); await after(); };
+  const testOdds = async () => { const r = await api.post("/admin/config/test-odds"); return `Clé ODDS valide : ${r.sportsCount} sports · quota restant ${r.quotaRemaining ?? "?"}`; };
+  const testClaude = async () => { const r = await api.post("/admin/config/test-anthropic"); return `Clé Claude valide (modèle ${r.model})`; };
+  const saveModel = async () => {
+    setModelMsg(null);
+    try { await api.post("/admin/config/model", { model: model.trim() }); setModelMsg({ ok: true, text: "Modèle enregistré." }); await after(); }
+    catch (e) { setModelMsg({ ok: false, text: e.message }); }
+  };
+
+  return (
+    <div style={{ marginTop: 14, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><KeyRound size={15} color={C.teal} /> Configuration API</div>
+      <div style={{ fontSize: 11, color: C.faint, marginTop: 6, lineHeight: 1.5 }}>
+        Les clés sont stockées chiffrées côté serveur et ne sont jamais réaffichées.
+        Si une variable existe dans Render Environment, elle reste prioritaire.
+      </div>
+      {err && <Banner text={err} />}
+      {st && (
+        <>
+          <div style={{ marginTop: 10, borderTop: `1px solid ${C.line}`, paddingTop: 8 }}>
+            <KeyStatusLine label="ODDS_API_KEY" st={st.odds} />
+            <KeyEditor placeholder="Coller la clé The Odds API" saveLabel="Sauvegarder clé ODDS" testLabel="Tester clé ODDS"
+              onSave={saveKey("/admin/config/odds")} onTest={testOdds}
+              disabled={st.odds.source === "env"} disabledNote="Définie dans Render Environment (prioritaire) : modifiez-la dans Render, pas ici." />
+          </div>
+          <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 8 }}>
+            <KeyStatusLine label="ANTHROPIC_API_KEY" st={st.anthropic} />
+            <KeyEditor placeholder="Coller la clé Anthropic (Claude)" saveLabel="Sauvegarder clé Claude" testLabel="Tester clé Claude"
+              onSave={saveKey("/admin/config/anthropic")} onTest={testClaude}
+              disabled={st.anthropic.source === "env"} disabledNote="Définie dans Render Environment (prioritaire) : modifiez-la dans Render, pas ici." />
+          </div>
+          <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, fontFamily: mono, padding: "4px 0" }}>
+              <span style={{ color: C.faint }}>CLAUDE_MODEL</span>
+              <span style={{ color: C.green }}>{st.model.value} ({SOURCE_LABEL[st.model.source]})</span>
+            </div>
+            {st.model.source === "env" ? (
+              <div style={{ fontSize: 11, color: C.faint, lineHeight: 1.5 }}>Défini dans Render Environment (prioritaire).</div>
+            ) : (
+              <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
+                <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="claude-sonnet-4-5"
+                  style={{ ...input, flex: 1, padding: "9px 11px", fontSize: 13 }} />
+                <button onClick={saveModel} disabled={!model.trim()} style={{ ...adminBtn, opacity: model.trim() ? 1 : 0.6, whiteSpace: "nowrap" }}>Sauvegarder le modèle</button>
+              </div>
+            )}
+            {modelMsg && <div style={{ fontSize: 11, color: modelMsg.ok ? C.green : C.danger, marginTop: 6 }}>{modelMsg.text}</div>}
+          </div>
+        </>
+      )}
     </div>
   );
 }

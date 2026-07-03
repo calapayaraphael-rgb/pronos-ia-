@@ -13,8 +13,11 @@ const Env = z.object({
   PORT: z.coerce.number().default(8080),
   NODE_ENV: z.string().default("development"),
   CORS_ORIGINS: z.string().default(""),
-  DATABASE_URL: z.string().min(1, "DATABASE_URL requis"),
-  JWT_SECRET: z.string().min(16, "JWT_SECRET trop court"),
+  CORS_ORIGIN: z.string().default(""), // alias singulier tolere
+  // Valides manuellement plus bas pour afficher un diagnostic clair
+  // (le message zod brut etait illisible dans les logs Render).
+  DATABASE_URL: z.string().default(""),
+  JWT_SECRET: z.string().default(""),
   BOOTSTRAP_ADMIN_EMAIL: z.string().optional(),
   BOOTSTRAP_ADMIN_PASSWORD: z.string().optional(),
 
@@ -62,11 +65,48 @@ if (!parsed.success) {
 
 const e = parsed.data;
 
-// Nettoyage des cles : espaces et guillemets parasites frequents lors du
-// copier-coller dans Render Environment.
-const cleanKey = (k) => (k || "").trim().replace(/^["']|["']$/g, "");
+// Nettoyage des cles : espaces, guillemets et prefixe "Bearer " parasites,
+// frequents lors du copier-coller dans Render Environment.
+const cleanKey = (k) => (k || "")
+  .trim()
+  .replace(/^["']+|["']+$/g, "")
+  .replace(/^Bearer\s+/i, "")
+  .replace(/^["']+|["']+$/g, "")
+  .trim();
 e.ODDS_API_KEY = cleanKey(e.ODDS_API_KEY);
 e.ANTHROPIC_API_KEY = cleanKey(e.ANTHROPIC_API_KEY);
+e.DATABASE_URL = e.DATABASE_URL.trim();
+e.JWT_SECRET = e.JWT_SECRET.trim();
+
+// ---- Diagnostic de demarrage SANS exposer les valeurs ----
+// Visible en tete des logs Render : dit exactement quelle variable manque.
+const yesNo = (v) => (v ? `YES (${v.length} caractères)` : "NO");
+console.log(`[BOOT] DATABASE_URL loaded: ${e.DATABASE_URL ? "YES" : "NO"}`);
+console.log(`[BOOT] JWT_SECRET loaded: ${yesNo(e.JWT_SECRET)}`);
+console.log(`[BOOT] ODDS_API_KEY loaded: ${yesNo(e.ODDS_API_KEY)}`);
+console.log(`[BOOT] ANTHROPIC_API_KEY loaded: ${yesNo(e.ANTHROPIC_API_KEY)}`);
+console.log(`[BOOT] CLAUDE_MODEL loaded: ${e.CLAUDE_MODEL ? `YES (${e.CLAUDE_MODEL})` : `NO (défaut: ${e.ANTHROPIC_MODEL})`}`);
+console.log(`[BOOT] NODE_ENV = ${e.NODE_ENV}`);
+
+// ---- Validation fatale avec instructions precises ----
+if (!e.DATABASE_URL) {
+  console.error(
+    "\nFATAL : DATABASE_URL manquante — le backend ne peut pas démarrer.\n" +
+    "Dans Render → service backend → Environment, ajoutez la variable :\n" +
+    "  DATABASE_URL = Internal Database URL de votre base PostgreSQL\n" +
+    "  (Dashboard Render → votre base → onglet Info → « Internal Database URL »).\n" +
+    "Puis cliquez « Save, rebuild, and deploy ». Ne mettez jamais cette URL dans GitHub."
+  );
+  process.exit(1);
+}
+if (e.JWT_SECRET.length < 16) {
+  console.error(
+    "\nFATAL : JWT_SECRET absent ou trop court (minimum 16 caractères).\n" +
+    "Dans Render → service backend → Environment, ajoutez JWT_SECRET\n" +
+    "(longue chaîne aléatoire, ex. : openssl rand -hex 48)."
+  );
+  process.exit(1);
+}
 
 // Cle jugee "configuree" seulement si elle est plausible (une vraie cle
 // The Odds API fait 32 caracteres ; "x" ou vide = non configuree).
@@ -89,7 +129,7 @@ const tracked = e.TRACKED_SPORTS.split(",").map((s) => s.trim()).filter(Boolean)
 
 export const config = {
   ...e,
-  corsOrigins: e.CORS_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean),
+  corsOrigins: (e.CORS_ORIGINS || e.CORS_ORIGIN).split(",").map((s) => s.trim()).filter(Boolean),
   trackedSports: tracked.length ? tracked : DEFAULT_TRACKED_SPORTS,
   ANTHROPIC_MODEL: e.CLAUDE_MODEL || e.ANTHROPIC_MODEL,
   hasOdds: plausibleKey(e.ODDS_API_KEY),
