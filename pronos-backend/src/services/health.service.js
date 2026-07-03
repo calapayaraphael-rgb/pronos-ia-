@@ -6,6 +6,7 @@ import { query } from "../db.js";
 import { config } from "../config.js";
 import { lastQuota } from "../providers/oddsApi.js";
 import { lastSync } from "./oddsApi.service.js";
+import { hasOdds, hasAI, keyPresence } from "./settings.service.js";
 
 // Message principal derive de l'etat (fonction pure, testee).
 export function diagnosticMessage({ oddsApiConfigured, oddsKeyPresent, lastSyncStatus, eventsCount, predictionsCount, quotaRemaining }) {
@@ -40,10 +41,10 @@ export async function buildDataHealth() {
       ok: false,
       dbConnected: false,
       databaseConfigured: true, // sinon le serveur n'aurait pas démarré
-      oddsApiConfigured: config.hasOdds,
-      anthropicConfigured: config.hasAI,
-      oddsKeyPresent: config.oddsKeyPresent,
-      anthropicKeyPresent: config.anthropicKeyPresent,
+      oddsApiConfigured: hasOdds(),
+      anthropicConfigured: hasAI(),
+      oddsKeyPresent: keyPresence().odds,
+      anthropicKeyPresent: keyPresence().anthropic,
       lastSyncAt: null, lastSyncStatus: null, lastSyncType: null, lastSyncMessage: null,
       sportsCount: 0, eventsCount: 0, oddsCount: 0, predictionsCount: 0,
       quotaRemaining: lastQuota.remaining ?? null,
@@ -54,10 +55,10 @@ export async function buildDataHealth() {
   const state = {
     dbConnected: true,
     databaseConfigured: true,
-    oddsApiConfigured: config.hasOdds,
-    anthropicConfigured: config.hasAI,
-    oddsKeyPresent: config.oddsKeyPresent,
-    anthropicKeyPresent: config.anthropicKeyPresent,
+    oddsApiConfigured: hasOdds(),
+    anthropicConfigured: hasAI(),
+    oddsKeyPresent: keyPresence().odds,
+    anthropicKeyPresent: keyPresence().anthropic,
     lastSyncAt: sync?.finished_at || sync?.started_at || null,
     lastSyncStatus: sync?.status || null,
     lastSyncType: sync?.type || null,

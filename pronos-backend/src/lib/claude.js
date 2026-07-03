@@ -1,5 +1,5 @@
-import { config } from "../config.js";
 import { parseClaudeJson, sanitizeAnalysisText } from "../services/claude.service.js";
+import { hasAI, anthropicKey, claudeModel } from "../services/settings.service.js";
 
 const SYSTEM = `Tu es un analyste de paris sportifs rigoureux, prudent et honnete.
 On te fournit des matchs REELS (verifies via une API) avec les cotes reelles agregees de plusieurs bookmakers : par issue, la probabilite "juste" (consensus devigue), la meilleure cote, le nombre de books. Parfois un resume blessures/compositions ; s'il est absent, considere l'info comme INCONNUE.
@@ -20,7 +20,7 @@ Schema par element :
 "key_factors":["..."],"data_completeness":"élevée|moyenne|faible","data_gaps":["..."]}`;
 
 export async function analyzeWithClaude(matches, { track } = {}) {
-  if (!config.hasAI) return [];
+  if (!hasAI()) return [];
   const dateStr = new Date().toLocaleDateString("fr-FR");
   const user = `Date du jour : ${dateStr}.
 ${track ? track + "\n\n" : ""}Matchs reels a analyser (JSON). Renvoie le tableau JSON correspondant.
@@ -30,10 +30,10 @@ ${JSON.stringify(matches)}`;
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-api-key": config.ANTHROPIC_API_KEY,
+      "x-api-key": anthropicKey(),
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({ model: config.ANTHROPIC_MODEL, max_tokens: 4000, system: SYSTEM, messages: [{ role: "user", content: user }] }),
+    body: JSON.stringify({ model: claudeModel(), max_tokens: 4000, system: SYSTEM, messages: [{ role: "user", content: user }] }),
   });
   if (!res.ok) throw new Error(`Claude ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = await res.json();

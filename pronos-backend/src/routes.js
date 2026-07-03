@@ -10,6 +10,9 @@ import { analyzeNew, recompute } from "./services/analyze.js";
 import { captureClosingLines } from "./services/closing.js";
 import { syncFull, syncSports, syncOdds, syncScores, syncPredictions, listSyncLogs } from "./services/oddsApi.service.js";
 import { buildDataHealth } from "./services/health.service.js";
+import { hasOdds, hasAI, claudeModel, keySources, keyPresence, saveSetting } from "./services/settings.service.js";
+import { testAnthropicKey } from "./services/claude.service.js";
+import { getSports } from "./providers/oddsApi.js";
 import { lastQuota } from "./providers/oddsApi.js";
 import * as help from "./help/content.js";
 
@@ -60,7 +63,7 @@ function pnlUnits(p) {
 }
 
 // ---------- public ----------
-r.get("/health", (req, res) => res.json({ ok: true, ai: config.hasAI, oddsApi: config.hasOdds, sports: config.trackedSports.length, time: new Date().toISOString() }));
+r.get("/health", (req, res) => res.json({ ok: true, ai: hasAI(), oddsApi: hasOdds(), sports: config.trackedSports.length, time: new Date().toISOString() }));
 
 // Diagnostic "site vide" : pourquoi rien ne s'affiche, sans exposer les cles.
 r.get("/health/data", wrap(async (req, res) => res.json(await buildDataHealth())));
@@ -265,13 +268,60 @@ r.get("/admin/status", wrap(async (req, res) => {
   const health = await buildDataHealth();
   res.json({
     ...health,
-    model: config.hasAI ? config.ANTHROPIC_MODEL : null,
+    model: claudeModel(),
+    keySources: keySources(),
     trackedSports: config.trackedSports,
     regions: config.ODDS_REGIONS,
     markets: config.ODDS_MARKETS,
     syncIntervalMinutes: config.SYNC_INTERVAL_MINUTES,
     quota: lastQuota,
   });
+}));
+
+// ---------- admin : configuration des cles API depuis l'application ----------
+// Les cles sont stockees CHIFFREES en PostgreSQL. Les variables Render
+// Environment restent prioritaires. Aucune valeur n'est jamais renvoyee.
+function configStatus() {
+  const s = keySources(), p = keyPresence();
+  return {
+    odds: { configured: hasOdds(), source: s.odds, present: p.odds },
+    anthropic: { configured: hasAI(), source: s.anthropic, present: p.anthropic },
+    model: { value: s.model.value, source: s.model.source },
+  };
+}
+
+r.get("/admin/config/status", wrap(async (req, res) => res.json(configStatus())));
+
+const keyBody = z.object({ key: z.string().min(1).max(300) });
+r.post("/admin/config/odds", wrap(async (req, res) => {
+  await saveSetting("odds_api_key", keyBody.parse(req.body).key);
+  res.json({ ok: true, ...configStatus() });
+}));
+r.post("/admin/config/anthropic", wrap(async (req, res) => {
+  await saveSetting("anthropic_api_key", keyBody.parse(req.body).key);
+  res.json({ ok: true, ...configStatus() });
+}));
+r.post("/admin/config/model", wrap(async (req, res) => {
+  const model = z.string().regex(/^[\w.-]{3,64}$/, "nom de modèle invalide").parse(req.body.model);
+  await saveSetting("claude_model", model);
+  res.json({ ok: true, ...configStatus() });
+}));
+
+// Teste la cle ODDS effective (1 requete API, ne renvoie jamais la cle).
+r.post("/admin/config/test-odds", wrap(async (req, res) => {
+  if (!hasOdds()) return res.status(400).json({ ok: false, error: "Aucune clé ODDS configurée (Render Environment ou page Admin)." });
+  try {
+    const { data, remaining } = await getSports();
+    res.json({ ok: true, sportsCount: (data || []).length, quotaRemaining: remaining });
+  } catch (e) {
+    res.status(502).json({ ok: false, error: e.code === "ODDS_KEY_INVALID" ? "Clé ODDS refusée (401) : vérifiez la valeur." : e.message });
+  }
+}));
+
+// Teste la cle Claude effective (appel minimal).
+r.post("/admin/config/test-anthropic", wrap(async (req, res) => {
+  const out = await testAnthropicKey();
+  res.status(out.ok ? 200 : 502).json(out);
 }));
 
 const SYNCS = { full: syncFull, sports: syncSports, odds: syncOdds, predictions: syncPredictions, scores: syncScores };

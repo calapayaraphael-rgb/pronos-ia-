@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { hasOdds, oddsKey } from "../services/settings.service.js";
 
 const BASE = "https://api.the-odds-api.com/v4";
 
@@ -7,12 +8,12 @@ const BASE = "https://api.the-odds-api.com/v4";
 export let lastQuota = { remaining: null, used: null, at: null };
 
 async function get(path) {
-  if (!config.hasOdds) {
-    const err = new Error("ODDS_API_KEY absente ou invalide : aucune donnée ne peut être récupérée.");
+  if (!hasOdds()) {
+    const err = new Error("ODDS_API_KEY absente : ajoutez-la dans Render Environment ou depuis la page Admin (Configuration API).");
     err.code = "ODDS_KEY_MISSING";
     throw err;
   }
-  const url = `${BASE}${path}${path.includes("?") ? "&" : "?"}apiKey=${config.ODDS_API_KEY}`;
+  const url = `${BASE}${path}${path.includes("?") ? "&" : "?"}apiKey=${oddsKey()}`;
   const res = await fetch(url);
   const remaining = res.headers.get("x-requests-remaining");
   const used = res.headers.get("x-requests-used");

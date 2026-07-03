@@ -86,6 +86,7 @@ console.log(`[BOOT] JWT_SECRET loaded: ${yesNo(e.JWT_SECRET)}`);
 console.log(`[BOOT] ODDS_API_KEY loaded: ${yesNo(e.ODDS_API_KEY)}`);
 console.log(`[BOOT] ANTHROPIC_API_KEY loaded: ${yesNo(e.ANTHROPIC_API_KEY)}`);
 console.log(`[BOOT] CLAUDE_MODEL loaded: ${e.CLAUDE_MODEL ? `YES (${e.CLAUDE_MODEL})` : `NO (défaut: ${e.ANTHROPIC_MODEL})`}`);
+console.log(`[BOOT] NODE_ENV = ${e.NODE_ENV}`);
 
 // ---- Validation fatale avec instructions precises ----
 if (!e.DATABASE_URL) {

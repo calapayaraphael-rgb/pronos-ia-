@@ -9,6 +9,7 @@ import routes from "./routes.js";
 import { startScheduler } from "./jobs/scheduler.js";
 import { createUser } from "./services/account.js";
 import { runMigrations } from "./migrate.js";
+import { loadSettings, hasOdds, hasAI } from "./services/settings.service.js";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -48,8 +49,11 @@ async function main() {
   await waitForDb().catch((e) => { log.error("DB indisponible", e.message); process.exit(1); });
   // Migrations au demarrage (Render free : pas d'etape de deploiement dediee).
   await runMigrations().catch((e) => { log.error("migrations", e.message); process.exit(1); });
-  if (!config.hasOdds) log.warn("config", "ODDS_API_KEY absente ou invalide : le serveur demarre, diagnostic sur /api/v1/health/data");
-  if (!config.hasAI) log.warn("config", "ANTHROPIC_API_KEY absente : analyses en mode engine_only (calcul de marche)");
+  // Cles API effectives : Render Environment prioritaire, sinon valeurs
+  // enregistrees depuis la page Admin (chiffrees en base).
+  await loadSettings();
+  if (!hasOdds()) log.warn("config", "aucune clé ODDS : ajoutez ODDS_API_KEY dans Render ou depuis la page Admin — diagnostic sur /api/v1/health/data");
+  if (!hasAI()) log.warn("config", "aucune clé Claude : analyses en mode engine_only (calcul de marché)");
   await bootstrap();
   if (config.JOBS_ONLY) { startScheduler(); log.info("mode", "worker (jobs uniquement)"); return; }
   startScheduler();
