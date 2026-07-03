@@ -4,7 +4,7 @@ import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { config } from "./config.js";
 import { log } from "./logger.js";
-import { pool } from "./db.js";
+import { waitForDb } from "./db.js";
 import routes from "./routes.js";
 import { startScheduler } from "./jobs/scheduler.js";
 import { createUser } from "./services/account.js";
@@ -45,7 +45,7 @@ async function bootstrap() {
 }
 
 async function main() {
-  await pool.query("SELECT 1").catch((e) => { log.error("DB indisponible", e.message); process.exit(1); });
+  await waitForDb().catch((e) => { log.error("DB indisponible", e.message); process.exit(1); });
   // Migrations au demarrage (Render free : pas d'etape de deploiement dediee).
   await runMigrations().catch((e) => { log.error("migrations", e.message); process.exit(1); });
   if (!config.hasOdds) log.warn("config", "ODDS_API_KEY absente ou invalide : le serveur demarre, diagnostic sur /api/v1/health/data");
