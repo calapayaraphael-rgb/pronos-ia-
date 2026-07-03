@@ -326,7 +326,7 @@ function EmptyDiagnostic({ onRetry, isAdmin }) {
 
   const causes = [];
   if (h) {
-    if (!h.oddsApiConfigured) causes.push("Clé ODDS_API_KEY absente ou invalide sur le backend");
+    if (!h.oddsApiConfigured) causes.push(h.oddsKeyPresent ? "ODDS_API_KEY présente mais au format invalide (vérifiez le copier-coller dans Render)" : "Clé ODDS_API_KEY absente sur le backend");
     if (h.quotaRemaining != null && h.quotaRemaining <= 0) causes.push("Quota The Odds API épuisé");
     if (h.lastSyncStatus === "error") causes.push("La dernière synchronisation a échoué");
     if (!h.lastSyncStatus) causes.push("Aucune synchronisation n'a encore été lancée");
@@ -386,6 +386,7 @@ function EmptyDiagnostic({ onRetry, isAdmin }) {
         )}
       </div>
       {syncMsg && <div style={{ fontSize: 12, color: syncMsg.startsWith("Échec") ? C.danger : C.green, marginTop: 10, textAlign: "center" }}>{syncMsg}</div>}
+      <div style={{ fontSize: 10, color: C.faint, fontFamily: mono, marginTop: 12, textAlign: "center", wordBreak: "break-all" }}>Backend utilisé : {api.base}</div>
     </div>
   );
 }
@@ -668,9 +669,12 @@ function AdminScreen() {
       {/* configuration */}
       <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 14 }}>
         <div style={{ fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><KeyRound size={15} color={C.gold} /> Configuration backend</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
-          <Tile label="ODDS_API_KEY" value={status.oddsApiConfigured ? "configurée" : "absente"} color={status.oddsApiConfigured ? C.green : C.danger} />
-          <Tile label="ANTHROPIC_API_KEY" value={status.anthropicConfigured ? "configurée" : "absente"} color={status.anthropicConfigured ? C.green : C.warn} />
+        <div style={{ marginTop: 10, fontSize: 12, fontFamily: mono, color: C.text, background: C.surface2, borderRadius: 9, padding: "9px 11px", wordBreak: "break-all" }}>
+          <span style={{ color: C.faint }}>Backend utilisé : </span>{api.base}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+          <Tile label="ODDS_API_KEY" value={status.oddsApiConfigured ? "configurée" : status.oddsKeyPresent ? "invalide" : "absente"} color={status.oddsApiConfigured ? C.green : C.danger} />
+          <Tile label="ANTHROPIC_API_KEY" value={status.anthropicConfigured ? "configurée" : status.anthropicKeyPresent ? "invalide" : "absente"} color={status.anthropicConfigured ? C.green : C.warn} />
           <Tile label="Modèle IA" value={status.model || "engine only"} />
           <Tile label="Quota API restant" value={status.quotaRemaining != null ? String(status.quotaRemaining) : "inconnu"} color={status.quotaRemaining === 0 ? C.danger : undefined} />
           <Tile label="Régions / marchés" value={`${status.regions} · ${status.markets}`} />

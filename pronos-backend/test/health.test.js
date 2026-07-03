@@ -6,10 +6,14 @@ process.env.JWT_SECRET ||= "secret-de-test-0123456789";
 
 const { diagnosticMessage } = await import("../src/services/health.service.js");
 
-const base = { oddsApiConfigured: true, lastSyncStatus: "success", eventsCount: 10, predictionsCount: 5, quotaRemaining: 400 };
+const base = { oddsApiConfigured: true, oddsKeyPresent: true, lastSyncStatus: "success", eventsCount: 10, predictionsCount: 5, quotaRemaining: 400 };
 
 test("diagnostic : clé absente prioritaire", () => {
-  assert.match(diagnosticMessage({ ...base, oddsApiConfigured: false }), /ODDS_API_KEY/);
+  assert.match(diagnosticMessage({ ...base, oddsApiConfigured: false, oddsKeyPresent: false }), /ODDS_API_KEY absente/);
+});
+
+test("diagnostic : clé présente mais format invalide", () => {
+  assert.match(diagnosticMessage({ ...base, oddsApiConfigured: false, oddsKeyPresent: true }), /présente mais au format invalide/);
 });
 
 test("diagnostic : quota épuisé", () => {

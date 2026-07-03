@@ -62,9 +62,15 @@ if (!parsed.success) {
 
 const e = parsed.data;
 
+// Nettoyage des cles : espaces et guillemets parasites frequents lors du
+// copier-coller dans Render Environment.
+const cleanKey = (k) => (k || "").trim().replace(/^["']|["']$/g, "");
+e.ODDS_API_KEY = cleanKey(e.ODDS_API_KEY);
+e.ANTHROPIC_API_KEY = cleanKey(e.ANTHROPIC_API_KEY);
+
 // Cle jugee "configuree" seulement si elle est plausible (une vraie cle
 // The Odds API fait 32 caracteres ; "x" ou vide = non configuree).
-const plausibleKey = (k) => typeof k === "string" && k.trim().length >= 16;
+const plausibleKey = (k) => typeof k === "string" && k.length >= 16;
 
 // Sports suivis par defaut si TRACKED_SPORTS est vide : sans cette liste,
 // aucune cote n'est jamais recuperee et le site reste vide.
@@ -88,5 +94,9 @@ export const config = {
   ANTHROPIC_MODEL: e.CLAUDE_MODEL || e.ANTHROPIC_MODEL,
   hasOdds: plausibleKey(e.ODDS_API_KEY),
   hasAI: plausibleKey(e.ANTHROPIC_API_KEY),
+  // Presence brute (meme invalide) : permet un diagnostic plus precis
+  // ("cle presente mais format invalide" vs "cle absente").
+  oddsKeyPresent: e.ODDS_API_KEY.length > 0,
+  anthropicKeyPresent: e.ANTHROPIC_API_KEY.length > 0,
   hasStripe: !!e.STRIPE_SECRET,
 };
