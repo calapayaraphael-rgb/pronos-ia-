@@ -64,7 +64,16 @@ export async function settleSport(sportKey) {
 }
 
 export async function settleAllTracked() {
+  const totals = { settled: 0, remaining: null, errors: [] };
   for (const sk of config.trackedSports) {
-    try { await settleSport(sk); } catch (e) { log.error("settle", sk, e.message); }
+    try {
+      const r = await settleSport(sk);
+      totals.settled += r.settled;
+      if (r.remaining != null) totals.remaining = r.remaining;
+    } catch (e) {
+      log.error("settle", sk, e.message);
+      totals.errors.push({ sport: sk, error: e.message });
+    }
   }
+  return totals;
 }

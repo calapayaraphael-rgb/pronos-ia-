@@ -19,24 +19,34 @@ const Env = z.object({
   BOOTSTRAP_ADMIN_PASSWORD: z.string().optional(),
 
   ODDS_API_KEY: z.string().default(""),
-  ODDS_REGIONS: z.string().default("eu"),
+  ODDS_REGIONS: z.string().default("eu,uk"),
+  ODDS_MARKETS: z.string().default("h2h"),
+  ODDS_FORMAT: z.string().default("decimal"),
+  ODDS_DATE_FORMAT: z.string().default("iso"),
   TRACKED_SPORTS: z.string().default(""),
 
   ANTHROPIC_API_KEY: z.string().default(""),
-  ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-6"),
+  // CLAUDE_MODEL est l'alias documente ; ANTHROPIC_MODEL reste supporte.
+  CLAUDE_MODEL: z.string().default(""),
+  ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-5"),
 
   API_FOOTBALL_KEY: z.string().default(""),
 
   MIN_RELIABILITY: z.coerce.number().default(60),
   MIN_EV: z.coerce.number().default(0.02),
+  MIN_EDGE_PERCENT: z.coerce.number().default(3),
+  MIN_CONFIDENCE: z.coerce.number().default(60),
+  MAX_PRONOS_PER_SYNC: z.coerce.number().default(30),
   MAX_RISK: z.enum(["faible", "moyen", "élevé"]).default("moyen"),
   START_BANKROLL: z.coerce.number().default(100),
 
   JOBS_ENABLED: boolEnv(true),
   JOBS_ONLY: boolEnv(false),
-  POLL_ODDS_CRON: z.string().default("*/5 * * * *"),
+  SYNC_INTERVAL_MINUTES: z.coerce.number().min(1).max(1440).default(15),
+  POLL_ODDS_CRON: z.string().default(""),
+  PREDICTIONS_CRON: z.string().default("*/30 * * * *"),
   CLOSING_CRON: z.string().default("* * * * *"),
-  POLL_RESULTS_CRON: z.string().default("*/15 * * * *"),
+  POLL_RESULTS_CRON: z.string().default("0 * * * *"),
   POLL_INJURIES_CRON: z.string().default("*/30 * * * *"),
 
   STRIPE_SECRET: z.string().default(""),
@@ -51,10 +61,32 @@ if (!parsed.success) {
 }
 
 const e = parsed.data;
+
+// Cle jugee "configuree" seulement si elle est plausible (une vraie cle
+// The Odds API fait 32 caracteres ; "x" ou vide = non configuree).
+const plausibleKey = (k) => typeof k === "string" && k.trim().length >= 16;
+
+// Sports suivis par defaut si TRACKED_SPORTS est vide : sans cette liste,
+// aucune cote n'est jamais recuperee et le site reste vide.
+const DEFAULT_TRACKED_SPORTS = [
+  "soccer_france_ligue_one",
+  "soccer_epl",
+  "soccer_spain_la_liga",
+  "soccer_italy_serie_a",
+  "soccer_germany_bundesliga",
+  "soccer_uefa_champs_league",
+  "basketball_nba",
+  "tennis_atp_french_open",
+];
+
+const tracked = e.TRACKED_SPORTS.split(",").map((s) => s.trim()).filter(Boolean);
+
 export const config = {
   ...e,
   corsOrigins: e.CORS_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean),
-  trackedSports: e.TRACKED_SPORTS.split(",").map((s) => s.trim()).filter(Boolean),
-  hasAI: !!e.ANTHROPIC_API_KEY,
+  trackedSports: tracked.length ? tracked : DEFAULT_TRACKED_SPORTS,
+  ANTHROPIC_MODEL: e.CLAUDE_MODEL || e.ANTHROPIC_MODEL,
+  hasOdds: plausibleKey(e.ODDS_API_KEY),
+  hasAI: plausibleKey(e.ANTHROPIC_API_KEY),
   hasStripe: !!e.STRIPE_SECRET,
 };

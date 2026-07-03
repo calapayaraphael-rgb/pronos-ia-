@@ -2,6 +2,7 @@ import { query, withTx } from "../db.js";
 import { analyzeWithClaude } from "../lib/claude.js";
 import { fetchTeamNews } from "../providers/injuries.js";
 import { evMetrics, reliabilityScore, riskLevel, validate } from "../lib/analysis.js";
+import { computeMetrics, passesFilters } from "./predictionEngine.service.js";
 import { config } from "../config.js";
 import { log } from "../logger.js";
 
@@ -103,6 +104,17 @@ export async function analyzeMatches(matchIds, { reason } = {}) {
     const evHeadline = aiOn ? ev.evSubjective : ev.evObjective;
     const v = validate({ reliability: rel.score, ev: evHeadline, risk, recommendation: ai?.recommendation, estProb, fairProb: pick.fairProb, confidence, thresholds: thresholds() });
 
+    // Moteur value/mise : edge vs consensus, score de value, mise en unites, Kelly.
+    const eng = computeMetrics({ fairProbability: estProb, bestOdds: pick.bestOdds, confidence, nBooks: pick.nBooks, dispersion: pick.dispersion });
+    const filt = passesFilters(
+      { edgePct: eng.edgePercent, confidence, bestOdds: pick.bestOdds, nBooks: pick.nBooks },
+      { minEdgePercent: config.MIN_EDGE_PERCENT, minConfidence: config.MIN_CONFIDENCE }
+    );
+    const warnings = [];
+    if (pick.bestOdds >= 3.5) warnings.push("Cote élevée : volatilité importante, mise prudente recommandée");
+    if (pick.dispersion > 0.12) warnings.push("Forte dispersion entre bookmakers : le marché est incertain");
+    if (pick.nBooks < 5) warnings.push("Peu de bookmakers sur ce marché : consensus moins fiable");
+
     await withTx(async (c) => {
       const { rows: prev } = await c.query(`SELECT id, version FROM predictions WHERE match_id=$1 AND superseded=false ORDER BY version DESC LIMIT 1`, [m.id]);
       let version = 1;
@@ -110,14 +122,19 @@ export async function analyzeMatches(matchIds, { reason } = {}) {
         version = prev[0].version + 1;
         await c.query(`UPDATE predictions SET superseded=true, reason_superseded=$2 WHERE id=$1`, [prev[0].id, reason || "recalcul"]);
       }
+      const proposed = v.proposed && filt.pass;
+      const rejectReasons = [...v.reasons, ...filt.reasons];
       await c.query(
         `INSERT INTO predictions(match_id, version, market, pick_outcome, pick_odds, consensus_odds, implied_prob, fair_prob, est_prob,
-           ev_subjective, ev_objective, confidence, risk, reliability_score, recommendation, summary, rationale, key_factors, data_gaps, model, basis, proposed, reject_reasons)
-         VALUES ($1,$2,'h2h',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+           ev_subjective, ev_objective, confidence, risk, reliability_score, recommendation, summary, rationale, key_factors, data_gaps, model, basis, proposed, reject_reasons,
+           edge_percent, value_score, stake_units, kelly_fraction, best_bookmaker, warnings, analysis_source)
+         VALUES ($1,$2,'h2h',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)`,
         [m.id, version, pick.outcome, pick.bestOdds, pick.consensusOdds, ev.impliedProb, pick.fairProb, estProb,
          ev.evSubjective, ev.evObjective, confidence, risk, rel.score, ai?.recommendation || null,
          ai?.summary || null, ai?.rationale || null, JSON.stringify(ai?.key_factors || []), JSON.stringify(ai?.data_gaps || []),
-         config.hasAI ? config.ANTHROPIC_MODEL : null, aiOn ? "IA" : "marché", v.proposed, JSON.stringify(v.reasons)]
+         config.hasAI ? config.ANTHROPIC_MODEL : null, aiOn ? "IA" : "marché", proposed, JSON.stringify(rejectReasons),
+         eng.edgePercent, eng.valueScore, eng.stakeUnits, eng.kellyFraction, pick.bestBook || null, JSON.stringify(warnings),
+         aiOn ? "ai" : "engine_only"]
       );
       written++;
     });
@@ -133,7 +150,8 @@ export async function analyzeNew() {
      WHERE m.commence_time > now() AND m.status='programmé'
        AND NOT EXISTS (SELECT 1 FROM predictions p WHERE p.match_id=m.id AND p.superseded=false)
        AND EXISTS (SELECT 1 FROM odds_consensus oc WHERE oc.match_id=m.id)
-     ORDER BY m.commence_time LIMIT 30`
+     ORDER BY m.commence_time LIMIT $1`,
+    [config.MAX_PRONOS_PER_SYNC]
   );
   return analyzeMatches(rows.map((r) => r.id), { reason: "nouvelle analyse" });
 }

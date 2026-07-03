@@ -30,6 +30,7 @@ export async function ingestOddsForSport(sportKey) {
   const to = new Date(Date.now() + 7 * 86400000);
   const { data, remaining } = await getOdds(sportKey, { from, to });
   const changed = [];
+  let oddsCount = 0;
 
   for (const ev of data || []) {
     const a = computeConsensus(ev);
@@ -43,16 +44,17 @@ export async function ingestOddsForSport(sportKey) {
       if (!a) return;
 
       const now = new Date();
-      // cotes brutes
+      // cotes brutes : tous les marches recuperes (h2h, spreads, totals…)
       for (const bk of ev.bookmakers || []) {
-        const m = (bk.markets || []).find((x) => x.key === "h2h");
-        if (!m) continue;
-        for (const o of m.outcomes || []) {
-          await c.query(
-            `INSERT INTO odds_snapshots(match_id, captured_at, bookmaker, market, outcome, price)
-             VALUES ($1,$2,$3,'h2h',$4,$5)`,
-            [ev.id, now, bk.title, o.name, o.price]
-          );
+        for (const m of bk.markets || []) {
+          for (const o of m.outcomes || []) {
+            await c.query(
+              `INSERT INTO odds_snapshots(match_id, captured_at, bookmaker, market, outcome, price, point)
+               VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+              [ev.id, now, bk.title, m.key, o.name, o.price, o.point ?? null]
+            );
+            oddsCount++;
+          }
         }
       }
       // consensus + detection mouvement
@@ -74,16 +76,27 @@ export async function ingestOddsForSport(sportKey) {
     });
   }
   log.info("ingest", sportKey, `${(data || []).length} matchs`, `req=${remaining}`);
-  return { count: (data || []).length, remaining, changed };
+  return { count: (data || []).length, oddsCount, remaining, changed };
 }
 
+// Ingestion de tous les sports suivis. Retourne des compteurs pour le
+// journal de sync ; les erreurs par sport sont collectees, pas fatales.
 export async function ingestAllTracked() {
-  const changed = [];
+  const totals = { changed: [], events: 0, odds: 0, remaining: null, errors: [] };
   for (const sk of config.trackedSports) {
-    try { const r = await ingestOddsForSport(sk); changed.push(...r.changed); }
-    catch (e) { log.error("ingest", sk, e.message); }
+    try {
+      const r = await ingestOddsForSport(sk);
+      totals.changed.push(...r.changed);
+      totals.events += r.count;
+      totals.odds += r.oddsCount;
+      if (r.remaining != null) totals.remaining = r.remaining;
+    } catch (e) {
+      log.error("ingest", sk, e.message);
+      totals.errors.push({ sport: sk, error: e.message, code: e.code });
+      if (e.code === "ODDS_KEY_MISSING" || e.code === "ODDS_KEY_INVALID" || e.code === "ODDS_QUOTA_EXCEEDED") throw Object.assign(e, { totals });
+    }
   }
-  return changed;
+  return totals;
 }
 
 function computeConsensus(ev) {
