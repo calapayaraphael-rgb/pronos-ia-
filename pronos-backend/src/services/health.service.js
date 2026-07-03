@@ -8,8 +8,12 @@ import { lastQuota } from "../providers/oddsApi.js";
 import { lastSync } from "./oddsApi.service.js";
 
 // Message principal derive de l'etat (fonction pure, testee).
-export function diagnosticMessage({ oddsApiConfigured, lastSyncStatus, eventsCount, predictionsCount, quotaRemaining }) {
-  if (!oddsApiConfigured) return "Clé ODDS_API_KEY absente ou invalide : ajoutez une vraie clé pour récupérer les matchs.";
+export function diagnosticMessage({ oddsApiConfigured, oddsKeyPresent, lastSyncStatus, eventsCount, predictionsCount, quotaRemaining }) {
+  if (!oddsApiConfigured) {
+    return oddsKeyPresent
+      ? "ODDS_API_KEY présente mais au format invalide (trop courte) : vérifiez le copier-coller dans Render Environment, puis redéployez."
+      : "Clé ODDS_API_KEY absente : ajoutez-la dans Render Environment (service backend) puis redéployez.";
+  }
   if (quotaRemaining != null && quotaRemaining <= 0) return "Quota The Odds API épuisé : les données ne peuvent plus être rafraîchies pour le moment.";
   if (lastSyncStatus === "error") return "La dernière synchronisation a échoué : consultez les logs admin puis relancez une sync.";
   if (lastSyncStatus == null) return "Aucune synchronisation effectuée pour l'instant : lancez une sync complète depuis la page admin.";
@@ -30,6 +34,8 @@ export async function buildDataHealth() {
   const state = {
     oddsApiConfigured: config.hasOdds,
     anthropicConfigured: config.hasAI,
+    oddsKeyPresent: config.oddsKeyPresent,
+    anthropicKeyPresent: config.anthropicKeyPresent,
     lastSyncAt: sync?.finished_at || sync?.started_at || null,
     lastSyncStatus: sync?.status || null,
     lastSyncType: sync?.type || null,
