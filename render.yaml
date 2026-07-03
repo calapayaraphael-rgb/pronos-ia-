@@ -34,13 +34,27 @@ services:
       - key: ODDS_API_KEY
         sync: false                # OBLIGATOIRE — demandé au déploiement
       - key: TRACKED_SPORTS
-        value: soccer_france_ligue_one,basketball_nba
+        value: ""                  # vide = liste par défaut (Ligue 1, EPL, Liga, Serie A, Bundesliga, LdC, NBA, tennis)
       - key: ODDS_REGIONS
-        value: eu
+        value: eu,uk
+      - key: ODDS_MARKETS
+        value: h2h,spreads,totals
+      - key: ODDS_FORMAT
+        value: decimal
+      - key: ODDS_DATE_FORMAT
+        value: iso
+      - key: SYNC_INTERVAL_MINUTES
+        value: "15"
+      - key: MIN_EDGE_PERCENT
+        value: "3"
+      - key: MIN_CONFIDENCE
+        value: "60"
+      - key: MAX_PRONOS_PER_SYNC
+        value: "30"
       - key: ANTHROPIC_API_KEY
         sync: false                # optionnel (avis IA)
-      - key: ANTHROPIC_MODEL
-        value: claude-sonnet-4-6
+      - key: CLAUDE_MODEL
+        value: claude-sonnet-4-5
       - key: CORS_ORIGINS
         sync: false                # mets ici l'URL Vercel exacte (https, sans / final)
       - key: BOOTSTRAP_ADMIN_EMAIL

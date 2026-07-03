@@ -8,6 +8,7 @@ import { pool } from "./db.js";
 import routes from "./routes.js";
 import { startScheduler } from "./jobs/scheduler.js";
 import { createUser } from "./services/account.js";
+import { runMigrations } from "./migrate.js";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -45,6 +46,10 @@ async function bootstrap() {
 
 async function main() {
   await pool.query("SELECT 1").catch((e) => { log.error("DB indisponible", e.message); process.exit(1); });
+  // Migrations au demarrage (Render free : pas d'etape de deploiement dediee).
+  await runMigrations().catch((e) => { log.error("migrations", e.message); process.exit(1); });
+  if (!config.hasOdds) log.warn("config", "ODDS_API_KEY absente ou invalide : le serveur demarre, diagnostic sur /api/v1/health/data");
+  if (!config.hasAI) log.warn("config", "ANTHROPIC_API_KEY absente : analyses en mode engine_only (calcul de marche)");
   await bootstrap();
   if (config.JOBS_ONLY) { startScheduler(); log.info("mode", "worker (jobs uniquement)"); return; }
   startScheduler();

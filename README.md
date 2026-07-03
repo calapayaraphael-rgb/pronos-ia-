@@ -13,10 +13,11 @@ pronos-ia/
 │   ├── .node-version
 │   └── src/
 │       ├── server.js  config.js  db.js  migrate.js  logger.js  routes.js
-│       ├── migrations/001_init.sql
+│       ├── migrations/001_init.sql  002_sync_and_engine.sql
 │       ├── lib/        analysis.js  claude.js
 │       ├── providers/  oddsApi.js  injuries.js
 │       ├── services/   ingest.js  analyze.js  settle.js  closing.js  dashboard.js  account.js
+│       │               oddsApi.service.js  predictionEngine.service.js  claude.service.js  health.service.js
 │       ├── jobs/        scheduler.js
 │       ├── middleware/  auth.js
 │       └── help/        content.js
@@ -82,6 +83,31 @@ vercel env add VITE_API_URL     # = https://pronos-backend-xxxx.onrender.com/api
 vercel --prod
 ```
 Puis mets l'URL Vercel dans `CORS_ORIGINS` côté Render et redéploie.
+
+## Diagnostic « site vide »
+
+Si aucun pronostic ne s'affiche, l'app explique pourquoi au lieu de rester vide :
+
+- `GET /api/v1/health/data` (public) retourne l'état complet : clés configurées, dernière synchronisation (date/statut), nombre de sports, matchs, cotes et pronos, quota API restant, et un message de cause probable (clé absente, quota épuisé, sync en échec, aucun match programmé, filtre qualité…).
+- Le frontend affiche cet écran de diagnostic avec un bouton **Réessayer** et, pour les admins, **Lancer une synchronisation**.
+- `GET /api/v1/health` sert aussi à réveiller le backend Render endormi (plan free).
+
+## Page Admin et synchronisations
+
+Un onglet **Admin** apparaît pour les comptes `role=admin` : statut des clés, quota The Odds API, compteurs de données, journal des synchronisations (`sync_logs`), et boutons de sync manuelle. Endpoints (JWT admin requis, rate-limités) :
+
+- `POST /api/v1/admin/sync/full` — sports → cotes → pronostics
+- `POST /api/v1/admin/sync/sports` · `/odds` · `/predictions` · `/scores`
+- `GET  /api/v1/admin/sync/logs`
+- `GET  /api/v1/admin/status`
+
+Le scheduler tourne automatiquement (cotes toutes les `SYNC_INTERVAL_MINUTES`, pronos toutes les 30 min, scores toutes les 60 min, sync légère au démarrage) — mais sur Render free le service dort : les boutons admin permettent de relancer à la main.
+
+## Moteur de pronostics
+
+Pour chaque match : probabilité implicite (`1/cote`), probabilité « juste » dé-viguée du consensus, `edge_percent`, `value_score` (= edge × confiance / 100), mise conseillée par paliers d'edge (0 à **2 unités max**), fraction de Kelly plafonnée à 25 %, niveau de risque low/medium/high. Filtres : edge ≥ `MIN_EDGE_PERCENT`, confiance ≥ `MIN_CONFIDENCE`, cotes entre 1.25 et 5.00 (sauf value très forte), minimum 3 bookmakers. L'analyse Claude (si `ANTHROPIC_API_KEY` est présente) enrichit le prono ; sinon `analysis_source = "engine_only"`. Les formulations type « gain garanti » sont automatiquement neutralisées.
+
+Tests : `cd pronos-backend && npm test` (probabilité implicite, edge, mise, Kelly, filtres, parsing JSON Claude, diagnostic santé).
 
 ## Notes d'honnêteté
 

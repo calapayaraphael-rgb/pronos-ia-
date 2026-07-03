@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Lock, LogOut, RefreshCw, ChevronDown, ChevronUp, Trophy, Shield, Flame, List,
   History, BarChart2, HelpCircle, Plus, Check, AlertTriangle, Clock, Info, Activity,
-  Eye, EyeOff, X, Ban, Sliders, User, TrendingUp,
+  Eye, EyeOff, X, Ban, Sliders, User, TrendingUp, Settings, Zap, Database, KeyRound,
+  CircleCheck, CircleX, ArrowDownUp,
 } from "lucide-react";
 import { api, auth, setUnauthorizedHandler } from "./api.js";
 
@@ -116,17 +117,18 @@ function Main({ user, sub, onLogout }) {
     <div style={{ minHeight: "100vh", background: C.bg }} className="safe-bottom">
       <TopBar title={tabTitle(tab)} onMenu={() => setMenu(true)} />
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
-        {tab === "pronos" && <Predictions stake={stake} />}
+        {tab === "pronos" && <Predictions stake={stake} isAdmin={user.role === "admin"} />}
         {tab === "historique" && <HistoryScreen />}
         {tab === "dashboard" && <Dashboard />}
+        {tab === "admin" && user.role === "admin" && <AdminScreen />}
         {tab === "aide" && <Help />}
       </div>
-      <BottomNav tab={tab} setTab={setTab} />
+      <BottomNav tab={tab} setTab={setTab} isAdmin={user.role === "admin"} />
       {menu && <AccountSheet user={user} sub={sub} stake={stake} setStake={setStakePersist} onClose={() => setMenu(false)} onLogout={onLogout} />}
     </div>
   );
 }
-const tabTitle = (t) => ({ pronos: "Pronostics", historique: "Historique", dashboard: "Tableau de bord", aide: "Aide" }[t]);
+const tabTitle = (t) => ({ pronos: "Pronostics", historique: "Historique", dashboard: "Tableau de bord", admin: "Admin", aide: "Aide" }[t]);
 
 function TopBar({ title, onMenu }) {
   return (
@@ -139,11 +141,12 @@ function TopBar({ title, onMenu }) {
   );
 }
 
-function BottomNav({ tab, setTab }) {
+function BottomNav({ tab, setTab, isAdmin }) {
   const items = [
     { id: "pronos", label: "Pronos", icon: TrendingUp },
     { id: "historique", label: "Historique", icon: History },
     { id: "dashboard", label: "Stats", icon: BarChart2 },
+    ...(isAdmin ? [{ id: "admin", label: "Admin", icon: Settings }] : []),
     { id: "aide", label: "Aide", icon: HelpCircle },
   ];
   return (
@@ -164,17 +167,31 @@ function BottomNav({ tab, setTab }) {
 }
 
 /* ============ Pronostics ============ */
-const PERIODS = [{ id: "today", label: "Aujourd'hui" }, { id: "tomorrow", label: "Demain" }, { id: "3d", label: "3 jours" }, { id: "7d", label: "7 jours" }];
+const PERIODS = [{ id: "today", label: "Aujourd'hui" }, { id: "tomorrow", label: "Demain" }, { id: "7d", label: "Cette semaine" }];
 const VIEWS = [
   { id: "top", label: "Top 5", icon: Trophy },
-  { id: "safe", label: "Plus sûrs", icon: Shield },
-  { id: "value", label: "Forte valeur", icon: Flame },
+  { id: "safe", label: "Sûrs", icon: Shield },
+  { id: "value", label: "Value", icon: Flame },
   { id: "all", label: "Tous", icon: List },
 ];
+const SPORTS = [
+  { id: "all", label: "Tous sports" },
+  { id: "football", label: "Football" },
+  { id: "basketball", label: "Basketball" },
+  { id: "tennis", label: "Tennis" },
+];
+const SORTS = [
+  { id: "value", label: "Meilleure value" },
+  { id: "confidence", label: "Meilleure confiance" },
+  { id: "time", label: "Plus proche du début" },
+  { id: "odds", label: "Meilleure cote" },
+];
 
-function Predictions({ stake }) {
+function Predictions({ stake, isAdmin }) {
   const [period, setPeriod] = useState("today");
   const [view, setView] = useState("top");
+  const [sport, setSport] = useState("all");
+  const [sort, setSort] = useState("value");
   const [minConf, setMinConf] = useState(0);
   const [items, setItems] = useState([]);
   const [rejected, setRejected] = useState([]);
@@ -186,14 +203,16 @@ function Predictions({ stake }) {
   const load = useCallback(async () => {
     setLoading(true); setErr("");
     try {
-      const data = await api.get(`/predictions?period=${period}&view=${view}&limit=100`);
+      const sp = sport !== "all" ? `&sport=${sport}` : "";
+      const so = view === "all" ? `&sort=${sort}` : "";
+      const data = await api.get(`/predictions?period=${period}&view=${view}&limit=100${sp}${so}`);
       setItems(data);
       if (showRejected) {
         const j = await api.get("/predictions/journal?includeRejected=true&limit=200");
         setRejected(j.filter((x) => !x.proposed && new Date(x.match.commence) > new Date()));
       }
     } catch (e) { setErr(e.message); } finally { setLoading(false); }
-  }, [period, view, showRejected]);
+  }, [period, view, sport, sort, showRejected]);
   useEffect(() => { load(); }, [load]);
 
   const follow = async (p) => {
@@ -211,15 +230,28 @@ function Predictions({ stake }) {
           <button key={v.id} onClick={() => setView(v.id)} style={{ ...pill, display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, background: on ? C.surface2 : "transparent", color: on ? C.text : C.faint, borderColor: on ? C.line : "transparent", fontWeight: on ? 700 : 500 }}><I size={13} />{v.label}</button>
         ); })}
       </div>
+      <div style={{ display: "flex", gap: 8, overflowX: "auto", padding: "0 0 8px" }}>
+        {SPORTS.map((s) => { const on = sport === s.id; return (
+          <button key={s.id} onClick={() => setSport(s.id)} style={{ ...pill, fontSize: 12, background: on ? C.surface2 : "transparent", color: on ? C.text : C.faint, borderColor: on ? C.line : "transparent", fontWeight: on ? 700 : 500 }}>{s.label}</button>
+        ); })}
+      </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 2px 10px" }}>
         <Sliders size={13} color={C.faint} />
         <span style={{ fontSize: 11, color: C.faint, fontFamily: mono, whiteSpace: "nowrap" }}>conf. min {minConf}</span>
         <input type="range" min="0" max="85" value={minConf} onChange={(e) => setMinConf(+e.target.value)} style={{ flex: 1 }} />
+        {view === "all" && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <ArrowDownUp size={13} color={C.faint} />
+            <select value={sort} onChange={(e) => setSort(e.target.value)} style={{ background: C.surface, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 11, padding: "4px 6px" }}>
+              {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </span>
+        )}
         <button onClick={load} disabled={loading} style={ghost}><RefreshCw size={16} color={C.text} className={loading ? "spin" : ""} /></button>
       </div>
 
       {err && <Banner text={err} />}
-      {loading && items.length === 0 && <Note icon={<Activity size={14} color={C.blue} />} text="Chargement des pronostics validés…" />}
+      {loading && items.length === 0 && <SkeletonCards />}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, fontFamily: mono, margin: "4px 0 8px" }}>
         <span style={{ color: C.teal }}>{list.length} validé(s)</span>
@@ -239,18 +271,121 @@ function Predictions({ stake }) {
         </div>
       )}
 
-      {!loading && list.length === 0 && (
-        <div style={{ marginTop: 20, textAlign: "center", padding: 24, border: `1px dashed ${C.line}`, borderRadius: 14 }}>
-          <Shield size={26} color={C.teal} />
-          <div style={{ fontSize: 14, fontWeight: 600, marginTop: 10 }}>Aucun pari validé pour le moment</div>
-          <div style={{ fontSize: 12, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>C'est normal et voulu : le système refuse les paris trop incertains. Changez de période, ou laissez les jobs collecter plus de données.</div>
-        </div>
-      )}
+      {!loading && list.length === 0 && <EmptyDiagnostic onRetry={load} isAdmin={isAdmin} />}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {list.map((p, i) => <PredCard key={p.id} p={p} rank={view === "top" ? i + 1 : null} onFollow={() => follow(p)} followed={followed.has(p.id)} />)}
       </div>
       <Disclaimer />
+    </div>
+  );
+}
+
+function SkeletonCards() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
+      {[0, 1, 2].map((i) => (
+        <div key={i} style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 14 }}>
+          <div style={{ height: 10, width: "40%", background: C.surface2, borderRadius: 6 }} />
+          <div style={{ height: 16, width: "70%", background: C.surface2, borderRadius: 6, marginTop: 10 }} />
+          <div style={{ height: 1, background: C.line, margin: "14px 0" }} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+            {[0, 1, 2].map((j) => <div key={j} style={{ height: 42, background: C.surface2, borderRadius: 9 }} />)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Ecran intelligent quand aucun pronostic n'est disponible : interroge
+// /health/data et explique la cause probable (cle absente, quota, sync…).
+function EmptyDiagnostic({ onRetry, isAdmin }) {
+  const [h, setH] = useState(null);
+  const [err, setErr] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState("");
+
+  const loadHealth = useCallback(async () => {
+    setErr("");
+    try { setH(await api.get("/health/data")); }
+    catch (e) { setErr(e.message.includes("injoignable") ? "Backend injoignable ou endormi (Render free) : réessayez dans ~30 secondes, le service redémarre." : e.message); }
+  }, []);
+  useEffect(() => { loadHealth(); }, [loadHealth]);
+
+  const runSync = async () => {
+    setSyncing(true); setSyncMsg("");
+    try {
+      const out = await api.post("/admin/sync/full");
+      setSyncMsg(out.ok ? `Sync terminée : ${out.message || out.status}` : `Échec : ${out.error}`);
+      await loadHealth();
+      if (out.ok) onRetry();
+    } catch (e) { setSyncMsg(`Échec : ${e.message}`); }
+    finally { setSyncing(false); }
+  };
+
+  const causes = [];
+  if (h) {
+    if (!h.oddsApiConfigured) causes.push("Clé ODDS_API_KEY absente ou invalide sur le backend");
+    if (h.quotaRemaining != null && h.quotaRemaining <= 0) causes.push("Quota The Odds API épuisé");
+    if (h.lastSyncStatus === "error") causes.push("La dernière synchronisation a échoué");
+    if (!h.lastSyncStatus) causes.push("Aucune synchronisation n'a encore été lancée");
+    if (h.oddsApiConfigured && h.eventsCount === 0 && h.lastSyncStatus === "success") causes.push("Aucun sport suivi n'a de match programmé actuellement");
+    if (h.eventsCount > 0 && h.predictionsCount === 0) causes.push("Les matchs sont chargés mais aucun prono n'a passé le filtre qualité");
+  } else if (err) {
+    causes.push("Backend Render endormi ou injoignable");
+  }
+
+  return (
+    <div style={{ marginTop: 16, border: `1px dashed ${C.line}`, borderRadius: 14, padding: 20 }}>
+      <div style={{ textAlign: "center" }}>
+        <Database size={26} color={C.teal} />
+        <div style={{ fontSize: 15, fontWeight: 700, marginTop: 10 }}>Aucun pronostic disponible pour le moment</div>
+        {h && <div style={{ fontSize: 12, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>{h.message}</div>}
+        {err && <div style={{ fontSize: 12, color: C.warn, marginTop: 6, lineHeight: 1.5 }}>{err}</div>}
+      </div>
+
+      {causes.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 11, color: C.faint, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Cause probable</div>
+          {causes.map((c, i) => (
+            <div key={i} style={{ display: "flex", gap: 6, alignItems: "flex-start", fontSize: 12, color: C.muted, padding: "3px 0" }}>
+              <AlertTriangle size={12} color={C.warn} style={{ flexShrink: 0, marginTop: 2 }} />{c}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {h && (
+        <div style={{ marginTop: 14, background: C.surface, borderRadius: 10, padding: 12 }}>
+          <div style={{ fontSize: 11, color: C.faint, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Dernière synchronisation</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 12, fontFamily: mono, color: C.muted }}>
+            <span>{h.lastSyncAt ? fmtDT(h.lastSyncAt) : "jamais"}</span>
+            {h.lastSyncStatus && <span style={{ color: h.lastSyncStatus === "success" ? C.green : h.lastSyncStatus === "partial" ? C.gold : C.danger }}>{h.lastSyncStatus}</span>}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 10 }}>
+            <Stat label="Sports" value={String(h.sportsCount)} />
+            <Stat label="Matchs" value={String(h.eventsCount)} />
+            <Stat label="Cotes" value={String(h.oddsCount)} />
+            <Stat label="Pronos" value={String(h.predictionsCount)} />
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 10, fontSize: 11, fontFamily: mono }}>
+            <span style={{ color: h.oddsApiConfigured ? C.green : C.danger, display: "inline-flex", alignItems: "center", gap: 4 }}>{h.oddsApiConfigured ? <CircleCheck size={12} /> : <CircleX size={12} />} Odds API</span>
+            <span style={{ color: h.anthropicConfigured ? C.green : C.warn, display: "inline-flex", alignItems: "center", gap: 4 }}>{h.anthropicConfigured ? <CircleCheck size={12} /> : <CircleX size={12} />} Claude IA</span>
+            {h.quotaRemaining != null && <span style={{ color: C.faint }}>quota {h.quotaRemaining}</span>}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <button onClick={() => { loadHealth(); onRetry(); }} style={{ ...primary, flex: 1 }}><RefreshCw size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />Réessayer</button>
+        {isAdmin && (
+          <button onClick={runSync} disabled={syncing} style={{ ...primary, flex: 1, background: "transparent", color: C.gold, border: `1px solid ${C.gold}66`, opacity: syncing ? 0.6 : 1 }}>
+            <Zap size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />{syncing ? "Sync en cours…" : "Lancer une synchronisation"}
+          </button>
+        )}
+      </div>
+      {syncMsg && <div style={{ fontSize: 12, color: syncMsg.startsWith("Échec") ? C.danger : C.green, marginTop: 10, textAlign: "center" }}>{syncMsg}</div>}
     </div>
   );
 }
@@ -283,14 +418,23 @@ function PredCard({ p, rank, onFollow, followed }) {
             <div style={{ fontSize: 10, color: C.faint, textTransform: "uppercase", letterSpacing: 0.5 }}>Sélection</div>
             <div style={{ fontSize: 15, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.pick}</div>
           </div>
-          <div style={{ fontFamily: mono, fontSize: 18, fontWeight: 700 }}>{p.odds.toFixed(2)}</div>
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            <div style={{ fontFamily: mono, fontSize: 18, fontWeight: 700 }}>{p.odds.toFixed(2)}</div>
+            {p.bestBookmaker && <div style={{ fontSize: 10, color: C.faint, fontFamily: mono }}>{p.bestBookmaker}</div>}
+          </div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 12 }}>
-          <Stat label="Value" value={ev > 0 ? "Oui" : "Non"} color={ev > 0 ? C.teal : C.faint} />
-          <Stat label="EV" value={signPct(ev)} color={ev > 0 ? C.teal : C.danger} />
+          <Stat label="Value" value={p.edgePercent != null ? `${p.edgePercent > 0 ? "+" : ""}${p.edgePercent.toFixed(1)}%` : ev > 0 ? "Oui" : "Non"} color={(p.edgePercent ?? ev) > 0 ? C.teal : C.faint} />
+          <Stat label="Mise conseillée" value={p.stakeUnits > 0 ? `${p.stakeUnits}u` : "—"} color={p.stakeUnits > 0 ? C.gold : C.faint} />
           <Stat label="Risque" value={p.risk} color={p.risk === "faible" ? C.teal : p.risk === "moyen" ? C.gold : C.danger} />
         </div>
+
+        {p.warnings && p.warnings.length > 0 && (
+          <div style={{ marginTop: 10, fontSize: 11, color: C.warn, lineHeight: 1.5 }}>
+            {p.warnings.map((w, i) => <div key={i} style={{ display: "flex", gap: 5, alignItems: "flex-start" }}><AlertTriangle size={11} style={{ flexShrink: 0, marginTop: 2 }} />{w}</div>)}
+          </div>
+        )}
 
         <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
           <button onClick={() => setOpen((o) => !o)} style={{ ...textBtn, flex: 1, justifyContent: "flex-start" }}>{open ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {open ? "Masquer" : "Détail"}</button>
@@ -308,6 +452,8 @@ function PredCard({ p, rank, onFollow, followed }) {
               <Tile label="EV subjectif (IA)" value={signPct(p.evSubjective)} color={p.evSubjective > 0 ? C.teal : C.danger} />
               <Tile label="Confiance" value={`${p.confidence}/100`} />
               <Tile label="Fiabilité" value={`${p.reliability}/100`} />
+              {p.valueScore != null && <Tile label="Score value" value={p.valueScore.toFixed(1)} color={p.valueScore > 0 ? C.teal : C.faint} />}
+              {p.kellyFraction != null && <Tile label="Kelly" value={pct(p.kellyFraction)} />}
               {p.clvPct != null && <Tile label="CLV" value={signPct(p.clvPct)} color={p.clvPct > 0 ? C.green : C.danger} />}
               {p.result && <Tile label="Résultat" value={p.result} color={p.result === "gagné" ? C.green : p.result === "perdu" ? C.danger : C.muted} />}
             </div>
@@ -488,6 +634,101 @@ function Spark({ points, start }) {
   );
 }
 
+/* ============ Admin ============ */
+function AdminScreen() {
+  const [status, setStatus] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState("");
+
+  const load = useCallback(async () => {
+    setErr("");
+    try {
+      const [s, l] = await Promise.all([api.get("/admin/status"), api.get("/admin/sync/logs?limit=20")]);
+      setStatus(s); setLogs(l);
+    } catch (e) { setErr(e.message); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const run = async (type, label) => {
+    setBusy(type); setMsg("");
+    try {
+      const out = await api.post(`/admin/sync/${type}`);
+      setMsg(out.ok ? `${label} : ${out.message || "OK"}` : `${label} — échec : ${out.error}`);
+    } catch (e) { setMsg(`${label} — échec : ${e.message}`); }
+    finally { setBusy(""); load(); }
+  };
+
+  if (err) return <div style={{ padding: 16 }}><Banner text={err} /></div>;
+  if (!status) return <div style={{ padding: 24, color: C.muted }}>Chargement…</div>;
+
+  return (
+    <div style={{ padding: "12px 16px 24px" }}>
+      {/* configuration */}
+      <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><KeyRound size={15} color={C.gold} /> Configuration backend</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
+          <Tile label="ODDS_API_KEY" value={status.oddsApiConfigured ? "configurée" : "absente"} color={status.oddsApiConfigured ? C.green : C.danger} />
+          <Tile label="ANTHROPIC_API_KEY" value={status.anthropicConfigured ? "configurée" : "absente"} color={status.anthropicConfigured ? C.green : C.warn} />
+          <Tile label="Modèle IA" value={status.model || "engine only"} />
+          <Tile label="Quota API restant" value={status.quotaRemaining != null ? String(status.quotaRemaining) : "inconnu"} color={status.quotaRemaining === 0 ? C.danger : undefined} />
+          <Tile label="Régions / marchés" value={`${status.regions} · ${status.markets}`} />
+          <Tile label="Sync auto" value={`${status.syncIntervalMinutes} min`} />
+        </div>
+        <div style={{ fontSize: 11, color: C.faint, marginTop: 10, lineHeight: 1.5 }}>Sports suivis : {status.trackedSports.join(", ")}</div>
+      </div>
+
+      {/* donnees */}
+      <div style={{ marginTop: 14, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><Database size={15} color={C.teal} /> Données</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 10 }}>
+          <Stat label="Sports" value={String(status.sportsCount)} />
+          <Stat label="Matchs" value={String(status.eventsCount)} />
+          <Stat label="Cotes 48h" value={String(status.oddsCount)} />
+          <Stat label="Pronos" value={String(status.predictionsCount)} />
+        </div>
+        <div style={{ fontSize: 12, color: C.muted, marginTop: 10, fontFamily: mono }}>
+          Dernière sync : {status.lastSyncAt ? fmtDT(status.lastSyncAt) : "jamais"}
+          {status.lastSyncStatus && <span style={{ marginLeft: 8, color: status.lastSyncStatus === "success" ? C.green : status.lastSyncStatus === "partial" ? C.gold : C.danger }}>{status.lastSyncStatus}</span>}
+        </div>
+        <div style={{ fontSize: 12, color: C.faint, marginTop: 4, lineHeight: 1.5 }}>{status.message}</div>
+      </div>
+
+      {/* actions */}
+      <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <button onClick={() => run("full", "Sync complète")} disabled={!!busy} style={{ ...primary, gridColumn: "1 / -1", opacity: busy ? 0.6 : 1 }}><Zap size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />{busy === "full" ? "Sync complète…" : "Sync complète"}</button>
+        <button onClick={() => run("odds", "Sync cotes")} disabled={!!busy} style={{ ...adminBtn, opacity: busy ? 0.6 : 1 }}>{busy === "odds" ? "…" : "Sync cotes"}</button>
+        <button onClick={() => run("predictions", "Génération pronos")} disabled={!!busy} style={{ ...adminBtn, opacity: busy ? 0.6 : 1 }}>{busy === "predictions" ? "…" : "Générer pronos IA"}</button>
+        <button onClick={() => run("sports", "Sync sports")} disabled={!!busy} style={{ ...adminBtn, opacity: busy ? 0.6 : 1 }}>{busy === "sports" ? "…" : "Sync sports"}</button>
+        <button onClick={() => run("scores", "Sync scores")} disabled={!!busy} style={{ ...adminBtn, opacity: busy ? 0.6 : 1 }}>{busy === "scores" ? "…" : "Sync scores"}</button>
+      </div>
+      {msg && <div style={{ fontSize: 12, color: msg.includes("échec") ? C.danger : C.green, marginTop: 10 }}>{msg}</div>}
+
+      {/* logs */}
+      <div style={{ marginTop: 18, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Journal des synchronisations</div>
+      {logs.length === 0 ? (
+        <div style={{ fontSize: 12, color: C.faint }}>Aucune synchronisation enregistrée.</div>
+      ) : logs.map((l) => (
+        <div key={l.id} style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 10, padding: "9px 12px", marginBottom: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, fontFamily: mono }}>
+            <span style={{ color: C.text, fontWeight: 700 }}>{l.type}</span>
+            <span style={{ color: l.status === "success" ? C.green : l.status === "partial" ? C.gold : C.danger }}>{l.status}</span>
+          </div>
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>{l.message || "—"}</div>
+          <div style={{ fontSize: 10, color: C.faint, fontFamily: mono, marginTop: 3 }}>
+            {fmtDT(l.started_at)}
+            {l.quota_remaining != null && ` · quota ${l.quota_remaining}`}
+            {` · ${l.sports_count || 0} sports · ${l.events_count || 0} matchs · ${l.odds_count || 0} cotes · ${l.predictions_count || 0} pronos`}
+          </div>
+          {l.error_details && <div style={{ fontSize: 10, color: C.danger, fontFamily: mono, marginTop: 3, overflowX: "auto" }}>{JSON.stringify(l.error_details)}</div>}
+        </div>
+      ))}
+      <Disclaimer />
+    </div>
+  );
+}
+
 /* ============ Aide ============ */
 function Help() {
   const [data, setData] = useState(null);
@@ -618,7 +859,7 @@ function Banner({ text }) { return <div style={{ display: "flex", alignItems: "f
 function Disclaimer() {
   return (
     <div style={{ marginTop: 24, paddingTop: 14, borderTop: `1px solid ${C.line}`, fontSize: 11, color: C.faint, lineHeight: 1.6 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}><Info size={12} /> Cotes de bookmakers réels en référence de marché. Aucun pronostic ne garantit un résultat.</div>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 6 }}><Info size={12} style={{ flexShrink: 0, marginTop: 2 }} /> Les pronostics sont des aides à la décision basées sur des données et de l'analyse IA. Ils ne garantissent jamais un gain. Pariez uniquement de manière responsable.</div>
       <div>Pariez avec modération — Joueurs Info Service : <span style={{ fontFamily: mono }}>09 74 75 13 13</span>.</div>
     </div>
   );
@@ -633,3 +874,4 @@ const textBtn = { background: "none", border: "none", color: C.blue, fontSize: 1
 const followBtn = { border: `1px solid ${C.line}`, borderRadius: 9, padding: "7px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5, background: C.surface };
 const mini = { background: C.surface2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 };
 const pill = { border: `1px solid ${C.line}`, borderRadius: 999, padding: "7px 14px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" };
+const adminBtn = { background: C.surface, color: C.text, border: `1px solid ${C.line}`, borderRadius: 11, padding: "11px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" };

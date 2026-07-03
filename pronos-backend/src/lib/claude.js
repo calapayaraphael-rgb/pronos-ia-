@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { parseClaudeJson, sanitizeAnalysisText } from "../services/claude.service.js";
 
 const SYSTEM = `Tu es un analyste de paris sportifs rigoureux, prudent et honnete.
 On te fournit des matchs REELS (verifies via une API) avec les cotes reelles agregees de plusieurs bookmakers : par issue, la probabilite "juste" (consensus devigue), la meilleure cote, le nombre de books. Parfois un resume blessures/compositions ; s'il est absent, considere l'info comme INCONNUE.
@@ -36,9 +37,14 @@ ${JSON.stringify(matches)}`;
   });
   if (!res.ok) throw new Error(`Claude ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = await res.json();
-  let txt = (data.content || []).map((b) => (b.type === "text" ? b.text : "")).join("\n").trim();
-  txt = txt.replace(/^```json/i, "").replace(/^```/, "").replace(/```$/, "").trim();
-  const s = txt.indexOf("["), e = txt.lastIndexOf("]");
-  if (s !== -1 && e !== -1) txt = txt.slice(s, e + 1);
-  try { return JSON.parse(txt); } catch { return []; }
+  const txt = (data.content || []).map((b) => (b.type === "text" ? b.text : "")).join("\n");
+  const parsed = parseClaudeJson(txt);
+  if (!Array.isArray(parsed)) return [];
+  // Pari responsable : neutraliser toute formulation de gain garanti.
+  return parsed.map((r) => ({
+    ...r,
+    summary: sanitizeAnalysisText(r.summary),
+    rationale: sanitizeAnalysisText(r.rationale),
+    key_factors: Array.isArray(r.key_factors) ? r.key_factors.map(sanitizeAnalysisText) : r.key_factors,
+  }));
 }
