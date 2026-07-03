@@ -1,12 +1,17 @@
-# Render Blueprint — déploie le backend + une base PostgreSQL.
+# Render Blueprint — déploie le backend (la base PostgreSQL est gérée à part).
 # Dans Render : New → Blueprint → sélectionne ce dépôt. Render lira ce fichier.
 # Les variables marquées sync:false seront demandées au moment du déploiement.
-
-databases:
-  - name: pronos-db
-    plan: free            # gratuit (expire après 90 jours) ; passe en "starter" pour la durée
-    databaseName: pronos
-    user: pronos
+#
+# BASE DE DONNÉES : DATABASE_URL est saisie manuellement (sync: false) car la
+# base PostgreSQL existe déjà dans le compte Render (elle n'est pas gérée par
+# ce blueprint). Où trouver la valeur : Dashboard Render → votre base
+# PostgreSQL → onglet « Info » → « Internal Database URL » (si la base et le
+# service sont dans la même région) — sinon « External Database URL ».
+# NE JAMAIS mettre cette URL dans ce fichier ni dans GitHub.
+#
+# (Alternative si vous préférez une base gérée par le blueprint : recréez un
+#  bloc `databases:` et remplacez l'entrée DATABASE_URL par
+#  `fromDatabase: { name: <nom>, property: connectionString }`.)
 
 services:
   - type: web
@@ -20,9 +25,7 @@ services:
     autoDeploy: true
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-            name: pronos-db
-            property: connectionString
+        sync: false                # OBLIGATOIRE — Internal Database URL de votre base (voir en-tête)
       - key: JWT_SECRET
         generateValue: true        # généré automatiquement par Render
       - key: NODE_VERSION

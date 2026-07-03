@@ -23,15 +23,37 @@ export function diagnosticMessage({ oddsApiConfigured, oddsKeyPresent, lastSyncS
 }
 
 export async function buildDataHealth() {
-  const { rows } = await query(`SELECT
-      (SELECT count(*) FROM sports WHERE active) AS sports,
-      (SELECT count(*) FROM matches WHERE commence_time > now()) AS events,
-      (SELECT count(*) FROM odds_snapshots WHERE captured_at > now() - interval '48 hours') AS odds,
-      (SELECT count(*) FROM predictions p JOIN matches m ON m.id=p.match_id
-        WHERE p.superseded=false AND p.proposed=true AND m.commence_time > now()) AS predictions`);
-  const c = rows[0];
-  const sync = await lastSync();
+  // Si PostgreSQL est injoignable, on repond quand meme (ok:false + message
+  // clair) au lieu d'une erreur 500 : le frontend peut afficher la cause.
+  let c, sync;
+  try {
+    const { rows } = await query(`SELECT
+        (SELECT count(*) FROM sports WHERE active) AS sports,
+        (SELECT count(*) FROM matches WHERE commence_time > now()) AS events,
+        (SELECT count(*) FROM odds_snapshots WHERE captured_at > now() - interval '48 hours') AS odds,
+        (SELECT count(*) FROM predictions p JOIN matches m ON m.id=p.match_id
+          WHERE p.superseded=false AND p.proposed=true AND m.commence_time > now()) AS predictions`);
+    c = rows[0];
+    sync = await lastSync();
+  } catch (e) {
+    return {
+      ok: false,
+      dbConnected: false,
+      databaseConfigured: true, // sinon le serveur n'aurait pas démarré
+      oddsApiConfigured: config.hasOdds,
+      anthropicConfigured: config.hasAI,
+      oddsKeyPresent: config.oddsKeyPresent,
+      anthropicKeyPresent: config.anthropicKeyPresent,
+      lastSyncAt: null, lastSyncStatus: null, lastSyncType: null, lastSyncMessage: null,
+      sportsCount: 0, eventsCount: 0, oddsCount: 0, predictionsCount: 0,
+      quotaRemaining: lastQuota.remaining ?? null,
+      message: "Base PostgreSQL non connectée : vérifiez DATABASE_URL dans Render Environment et l'état de la base.",
+      dbError: e.message,
+    };
+  }
   const state = {
+    dbConnected: true,
+    databaseConfigured: true,
     oddsApiConfigured: config.hasOdds,
     anthropicConfigured: config.hasAI,
     oddsKeyPresent: config.oddsKeyPresent,

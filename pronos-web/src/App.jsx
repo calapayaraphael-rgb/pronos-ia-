@@ -326,6 +326,7 @@ function EmptyDiagnostic({ onRetry, isAdmin }) {
 
   const causes = [];
   if (h) {
+    if (h.dbConnected === false) causes.push("Base PostgreSQL non connectée : vérifiez DATABASE_URL sur Render");
     if (!h.oddsApiConfigured) causes.push(h.oddsKeyPresent ? "ODDS_API_KEY présente mais au format invalide (vérifiez le copier-coller dans Render)" : "Clé ODDS_API_KEY absente sur le backend");
     if (h.quotaRemaining != null && h.quotaRemaining <= 0) causes.push("Quota The Odds API épuisé");
     if (h.lastSyncStatus === "error") causes.push("La dernière synchronisation a échoué");
@@ -661,7 +662,13 @@ function AdminScreen() {
     finally { setBusy(""); load(); }
   };
 
-  if (err) return <div style={{ padding: 16 }}><Banner text={err} /></div>;
+  if (err) return (
+    <div style={{ padding: 16 }}>
+      <Banner text={err.includes("injoignable") ? "Backend non joignable ou endormi (Render free) : réessayez dans ~30 secondes." : err} />
+      <div style={{ fontSize: 11, color: C.faint, fontFamily: mono, marginTop: 8, wordBreak: "break-all" }}>Backend utilisé : {api.base}</div>
+      <button onClick={load} style={{ ...primary, marginTop: 12 }}><RefreshCw size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />Réessayer</button>
+    </div>
+  );
   if (!status) return <div style={{ padding: 24, color: C.muted }}>Chargement…</div>;
 
   return (
@@ -673,6 +680,8 @@ function AdminScreen() {
           <span style={{ color: C.faint }}>Backend utilisé : </span>{api.base}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+          <Tile label="DATABASE_URL" value={status.databaseConfigured ? "configurée" : "absente"} color={status.databaseConfigured ? C.green : C.danger} />
+          <Tile label="Base PostgreSQL" value={status.dbConnected ? "connectée" : "non connectée"} color={status.dbConnected ? C.green : C.danger} />
           <Tile label="ODDS_API_KEY" value={status.oddsApiConfigured ? "configurée" : status.oddsKeyPresent ? "invalide" : "absente"} color={status.oddsApiConfigured ? C.green : C.danger} />
           <Tile label="ANTHROPIC_API_KEY" value={status.anthropicConfigured ? "configurée" : status.anthropicKeyPresent ? "invalide" : "absente"} color={status.anthropicConfigured ? C.green : C.warn} />
           <Tile label="Modèle IA" value={status.model || "engine only"} />
