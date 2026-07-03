@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
-import { pool } from "./db.js";
+import { pool, waitForDb } from "./db.js";
 import { log } from "./logger.js";
 
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "migrations");
@@ -35,7 +35,9 @@ export async function runMigrations() {
 
 // Mode CLI : node src/migrate.js
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  runMigrations()
+  waitForDb()
+    .then(runMigrations)
     .then(() => pool.end())
+    .then(() => process.exit(0))
     .catch((e) => { log.error("migration failed", e.message); process.exit(1); });
 }

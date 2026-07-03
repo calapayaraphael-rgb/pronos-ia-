@@ -2,11 +2,40 @@ import pg from "pg";
 import { config } from "./config.js";
 import { log } from "./logger.js";
 
+// SSL auto-detecte : la connexion INTERNE Render Postgres (hostname sans
+// domaine, ex. "dpg-xxxx-a") ne supporte pas SSL — forcer SSL en production
+// faisait planter le deploiement ("The server does not support SSL
+// connections", exit 1). Les URLs externes (hostname avec un point) gardent
+// SSL. Forcable via PGSSLMODE=require|disable ou ?sslmode=... dans l'URL.
+export function sslFor(url) {
+  const mode = (process.env.PGSSLMODE || "").toLowerCase();
+  if (mode === "disable" || /[?&]sslmode=disable/i.test(url)) return false;
+  if (mode === "require" || /[?&]sslmode=require/i.test(url)) return { rejectUnauthorized: false };
+  try {
+    const host = new URL(url).hostname;
+    if (!host || host === "localhost" || host === "127.0.0.1" || !host.includes(".")) return false;
+  } catch { /* URL non parsable : on laisse le comportement par defaut */ }
+  return config.NODE_ENV === "production" ? { rejectUnauthorized: false } : false;
+}
+
 export const pool = new pg.Pool({
   connectionString: config.DATABASE_URL,
   max: 10,
-  ssl: config.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
+  ssl: sslFor(config.DATABASE_URL),
 });
+
+// Attend que la base soit joignable (au deploiement Render, Postgres peut
+// accepter les connexions quelques secondes apres le demarrage du service).
+export async function waitForDb({ attempts = 10, delayMs = 3000 } = {}) {
+  for (let i = 1; i <= attempts; i++) {
+    try { await pool.query("SELECT 1"); return; }
+    catch (e) {
+      if (i === attempts) throw e;
+      log.warn("db", `tentative ${i}/${attempts} : ${e.message} — nouvel essai dans ${delayMs / 1000}s`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+}
 
 pool.on("error", (err) => log.error("Pool PG", err.message));
 
