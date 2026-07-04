@@ -12,6 +12,8 @@ import { syncFull, syncSports, syncOdds, syncScores, syncPredictions, listSyncLo
 import { buildDataHealth } from "./services/health.service.js";
 import { hasOdds, hasAI, claudeModel, keySources, keyPresence, saveSetting } from "./services/settings.service.js";
 import { testAnthropicKey } from "./services/claude.service.js";
+import { isFrenchBookmaker } from "./services/predictionEngine.service.js";
+import { telegramEnabled, sendTest as sendTelegramTest } from "./services/telegram.service.js";
 import { getSports } from "./providers/oddsApi.js";
 import { lastQuota } from "./providers/oddsApi.js";
 import * as help from "./help/content.js";
@@ -36,6 +38,7 @@ function predRow(p) {
     match: { id: p.match_id, league: p.league, home: p.home_team, away: p.away_team, commence: p.commence_time, status: p.status, sport: p.sport_key },
     market: p.market, pick: p.pick_outcome, odds: +p.pick_odds, consensusOdds: +p.consensus_odds,
     bestBookmaker: p.best_bookmaker || null,
+    frBookmaker: isFrenchBookmaker(p.best_bookmaker, config.frBookmakers),
     impliedProb: +p.implied_prob, fairProb: +p.fair_prob, estProb: +p.est_prob,
     evObjective: +p.ev_objective, evSubjective: +p.ev_subjective, basis: p.basis,
     edgePercent: p.edge_percent != null ? +p.edge_percent : null,
@@ -274,6 +277,8 @@ r.get("/admin/status", wrap(async (req, res) => {
     regions: config.ODDS_REGIONS,
     markets: config.ODDS_MARKETS,
     syncIntervalMinutes: config.SYNC_INTERVAL_MINUTES,
+    eventWindowDays: config.EVENT_WINDOW_DAYS,
+    telegramConfigured: telegramEnabled(),
     quota: lastQuota,
   });
 }));
@@ -321,6 +326,12 @@ r.post("/admin/config/test-odds", wrap(async (req, res) => {
 // Teste la cle Claude effective (appel minimal).
 r.post("/admin/config/test-anthropic", wrap(async (req, res) => {
   const out = await testAnthropicKey();
+  res.status(out.ok ? 200 : 502).json(out);
+}));
+
+// Envoie un message de test Telegram (si TELEGRAM_* configurees sur Render).
+r.post("/admin/config/test-telegram", wrap(async (req, res) => {
+  const out = await sendTelegramTest();
   res.status(out.ok ? 200 : 502).json(out);
 }));
 

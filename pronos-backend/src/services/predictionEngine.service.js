@@ -65,6 +65,19 @@ export function passesFilters({ edgePct, confidence, bestOdds, nBooks }, { minEd
   return { pass: reasons.length === 0, reasons };
 }
 
+// Bookmaker accessible en France ? Compare le titre affiche (ex. "Winamax
+// (FR)", "Parions Sport (FR)") a la liste BOOKMAKERS_PRIORITY (ex.
+// "winamax,betclic,unibet_fr,parionssport_fr") apres normalisation.
+export function isFrenchBookmaker(title, priorityList) {
+  if (!title || !priorityList?.length) return false;
+  const norm = (s) => String(s).toLowerCase().replace(/[^a-z]/g, "");
+  const t = norm(title);
+  return priorityList.some((entry) => {
+    const tok = norm(entry.replace(/_fr$/i, ""));
+    return tok.length >= 4 && t.includes(tok);
+  });
+}
+
 // Metriques completes pour une selection.
 export function computeMetrics({ fairProbability, bestOdds, confidence, nBooks = 0, dispersion = 0 }) {
   const implied = impliedProbability(bestOdds);

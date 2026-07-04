@@ -6,8 +6,26 @@ import { syncSports, syncOdds, syncScores, syncPredictions } from "../services/o
 import { hasOdds } from "../services/settings.service.js";
 import { recompute } from "../services/analyze.js";
 import { captureClosingLines } from "../services/closing.js";
+import { telegramEnabled, sendDailySummary } from "../services/telegram.service.js";
 
-const LOCK = { odds: 101, closing: 102, results: 103, injuries: 104, predictions: 105 };
+const LOCK = { odds: 101, closing: 102, results: 103, injuries: 104, predictions: 105, telegram: 106 };
+
+// Resume quotidien Telegram : pronos valides du jour + top 3 par value.
+async function dailySummaryJob() {
+  if (!telegramEnabled()) return { skippedReason: "telegram non configuré" };
+  const { rows } = await query(
+    `SELECT p.pick_outcome, p.pick_odds, p.edge_percent, p.confidence, p.value_score, m.home_team, m.away_team
+     FROM predictions p JOIN matches m ON m.id=p.match_id
+     WHERE p.superseded=false AND p.proposed=true AND m.commence_time BETWEEN now() AND now() + interval '24 hours'
+     ORDER BY p.value_score DESC NULLS LAST`
+  );
+  const top = rows.slice(0, 3).map((r) => ({
+    home: r.home_team, away: r.away_team, selection: r.pick_outcome,
+    odds: +r.pick_odds, edgePercent: +(r.edge_percent ?? 0), confidence: r.confidence,
+  }));
+  const out = await sendDailySummary({ count: rows.length, top });
+  return { sent: out.ok, count: rows.length };
+}
 
 async function runJob(name, lockKey, fn) {
   const { rows } = await query(`INSERT INTO job_runs(job, status) VALUES ($1,'running') RETURNING id`, [name]);
@@ -75,6 +93,9 @@ export function startScheduler() {
   }));
 
   cron.schedule(config.POLL_INJURIES_CRON, () => runJob("poll_injuries", LOCK.injuries, injuriesJob));
+
+  // 9h heure de Paris : resume quotidien Telegram (si configure).
+  cron.schedule("0 9 * * *", () => runJob("telegram_daily", LOCK.telegram, dailySummaryJob), { timezone: "Europe/Paris" });
 
   log.info("scheduler", "actif", { odds: oddsCron, predictions: config.PREDICTIONS_CRON, results: config.POLL_RESULTS_CRON });
 }

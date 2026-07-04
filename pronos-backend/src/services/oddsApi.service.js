@@ -41,18 +41,28 @@ async function runSync(type, fn) {
   try {
     const out = await fn();
     const partial = out.errors && out.errors.length > 0;
+    // Details conserves meme en succes : repartition par sport + echantillon
+    // brut de la reponse API (diagnostic "pourquoi 0 matchs").
+    const details = {};
+    if (partial) details.errors = out.errors;
+    if (out.sportsDetail?.length) details.sportsDetail = out.sportsDetail;
+    if (out.skippedSports?.length) details.skippedSports = out.skippedSports;
+    if (out.rawSample != null) details.rawSample = out.rawSample;
     await finishLog(id, {
       status: partial ? "partial" : "success",
       message: out.message || (partial ? `Terminé avec ${out.errors.length} erreur(s)` : "OK"),
       counts: out.counts,
       quota: out.remaining,
-      error: partial ? { errors: out.errors } : null,
+      error: Object.keys(details).length ? details : null,
     });
     return { ok: true, status: partial ? "partial" : "success", ...out };
   } catch (e) {
     const message = friendlyError(e);
     log.error("sync", type, e.message);
-    await finishLog(id, { status: "error", message, counts: e.totals ? { events: e.totals.events, odds: e.totals.odds } : {}, error: { error: e.message, code: e.code || null } });
+    const errDetails = { error: e.message, code: e.code || null };
+    if (e.totals?.sportsDetail?.length) errDetails.sportsDetail = e.totals.sportsDetail;
+    if (e.totals?.skippedSports?.length) errDetails.skippedSports = e.totals.skippedSports;
+    await finishLog(id, { status: "error", message, counts: e.totals ? { events: e.totals.events, odds: e.totals.odds } : {}, error: errDetails });
     return { ok: false, status: "error", error: message, code: e.code || null };
   }
 }
@@ -67,12 +77,22 @@ export function syncSports() {
 export function syncOdds() {
   return runSync("odds", async () => {
     const t = await ingestAllTracked();
+    // Des matchs sont arrives : generer les pronos manquants immediatement
+    // (sans attendre le cron des predictions).
+    let predictions = 0;
+    if (t.events > 0) {
+      try { predictions = await analyzeNew(); }
+      catch (e) { t.errors.push({ error: `génération pronos: ${e.message}` }); }
+    }
     return {
-      counts: { events: t.events, odds: t.odds },
+      counts: { events: t.events, odds: t.odds, predictions },
       remaining: t.remaining,
       errors: t.errors,
       changedMatchIds: t.changed,
-      message: `${t.events} matchs, ${t.odds} cotes`,
+      sportsDetail: t.sportsDetail,
+      skippedSports: t.skippedSports,
+      rawSample: t.rawSample,
+      message: `${t.events} matchs, ${t.odds} cotes (${t.sportsDetail?.length || 0} sports)${predictions ? `, ${predictions} pronostics` : ""}`,
     };
   });
 }
@@ -102,6 +122,9 @@ export function syncFull() {
       counts: { sports, events: odds.events, odds: odds.odds, predictions },
       remaining: odds.remaining,
       errors: odds.errors,
+      sportsDetail: odds.sportsDetail,
+      skippedSports: odds.skippedSports,
+      rawSample: odds.rawSample,
       message: `${sports} sports, ${odds.events} matchs, ${odds.odds} cotes, ${predictions} pronostics`,
     };
   });

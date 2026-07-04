@@ -48,6 +48,16 @@ services:
         value: iso
       - key: SYNC_INTERVAL_MINUTES
         value: "15"
+      - key: EVENT_WINDOW_DAYS
+        value: "7"
+      - key: MAX_TRACKED_SPORTS
+        value: "10"
+      - key: BOOKMAKERS_PRIORITY
+        value: winamax,betclic,unibet_fr,parionssport_fr
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false                # optionnel (notifications Telegram)
+      - key: TELEGRAM_CHAT_ID
+        sync: false                # optionnel
       - key: MIN_EDGE_PERCENT
         value: "3"
       - key: MIN_CONFIDENCE

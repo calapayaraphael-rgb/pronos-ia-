@@ -65,7 +65,13 @@ export async function settleSport(sportKey) {
 
 export async function settleAllTracked() {
   const totals = { settled: 0, remaining: null, errors: [] };
-  for (const sk of config.trackedSports) {
+  // Sports des matchs recents en base (plus fiable que la liste statique :
+  // couvre aussi les sports ajoutes dynamiquement).
+  const { rows } = await query(
+    `SELECT DISTINCT sport_key FROM matches WHERE commence_time > now() - interval '3 days' AND completed=false`
+  );
+  const sports = rows.length ? rows.map((r) => r.sport_key) : config.trackedSports;
+  for (const sk of sports) {
     try {
       const r = await settleSport(sk);
       totals.settled += r.settled;
