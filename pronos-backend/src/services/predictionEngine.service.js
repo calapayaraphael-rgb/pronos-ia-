@@ -60,7 +60,7 @@ export function passesFilters({ edgePct, confidence, bestOdds, nBooks }, { minEd
   if (edgePct == null || edgePct < minEdgePercent) reasons.push(`Edge insuffisant (< ${minEdgePercent}%)`);
   if (confidence == null || confidence < minConfidence) reasons.push(`Confiance insuffisante (< ${minConfidence})`);
   if (bestOdds != null && bestOdds < 1.25) reasons.push("Cote trop basse (< 1.25)");
-  if (bestOdds != null && bestOdds > 10 && (edgePct == null || edgePct < 8)) reasons.push("Cote trop haute (> 5.00) sans value très forte");
+  if (bestOdds != null && bestOdds > 10 && (edgePct == null || edgePct < 10)) reasons.push("Cote trop haute (> 10.00) sans value très forte");
   if (nBooks != null && nBooks < 1) reasons.push("Trop peu de bookmakers");
   return { pass: reasons.length === 0, reasons };
 }
