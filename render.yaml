@@ -63,10 +63,12 @@ services:
         sync: false                # optionnel (notifications Telegram)
       - key: TELEGRAM_CHAT_ID
         sync: false                # optionnel
+      # Seuils de validation (assouplis pour prouver la chaine ; resserrez
+      # progressivement : MIN_EDGE_PERCENT=2 puis 3, MIN_CONFIDENCE=55...)
       - key: MIN_EDGE_PERCENT
-        value: "3"
+        value: "0"
       - key: MIN_CONFIDENCE
-        value: "60"
+        value: "40"
       - key: MAX_PRONOS_PER_SYNC
         value: "30"
       - key: ANTHROPIC_API_KEY
@@ -80,10 +82,10 @@ services:
       - key: BOOTSTRAP_ADMIN_PASSWORD
         sync: false                # ton mot de passe admin (fort)
       - key: MIN_RELIABILITY
-        value: "60"
+        value: "45"
       - key: MIN_EV
-        value: "0.02"
+        value: "0"
       - key: MAX_RISK
-        value: moyen
+        value: élevé
       - key: START_BANKROLL
         value: "100"

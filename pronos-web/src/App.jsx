@@ -206,14 +206,16 @@ function Predictions({ stake, isAdmin }) {
     try {
       const sp = sport !== "all" ? `&sport=${sport}` : "";
       const so = view === "all" ? `&sort=${sort}` : "";
-      const data = await api.get(`/predictions?period=${period}&view=${view}&limit=100${sp}${so}`);
+      const [data, journal] = await Promise.all([
+        api.get(`/predictions?period=${period}&view=${view}&limit=100${sp}${so}`),
+        api.get("/predictions/journal?includeRejected=true&limit=200"),
+      ]);
       setItems(data);
-      if (showRejected) {
-        const j = await api.get("/predictions/journal?includeRejected=true&limit=200");
-        setRejected(j.filter((x) => !x.proposed && new Date(x.match.commence) > new Date()));
-      }
+      // Analyses rejetees par le filtre qualite (matchs a venir uniquement) :
+      // affichees a part, jamais melangees aux pronostics valides.
+      setRejected(journal.filter((x) => !x.proposed && new Date(x.match.commence) > new Date()));
     } catch (e) { setErr(e.message); } finally { setLoading(false); }
-  }, [period, view, sport, sort, showRejected]);
+  }, [period, view, sport, sort]);
   useEffect(() => { load(); }, [load]);
 
   const follow = async (p) => {
@@ -221,7 +223,8 @@ function Predictions({ stake, isAdmin }) {
     catch (e) { setErr(e.message); }
   };
 
-  const list = items.filter((x) => x.confidence >= minConf && (!frOnly || x.frBookmaker));
+  const isFallback = items.length > 0 && items.every((x) => x.fallback);
+  const list = items.filter((x) => (isFallback || x.confidence >= minConf) && (!frOnly || x.frBookmaker));
 
   return (
     <div style={{ padding: "0 16px 24px" }}>
@@ -239,7 +242,7 @@ function Predictions({ stake, isAdmin }) {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 2px 10px" }}>
         <Sliders size={13} color={C.faint} />
-        <span style={{ fontSize: 11, color: C.faint, fontFamily: mono, whiteSpace: "nowrap" }}>conf. min {minConf}</span>
+        <span style={{ fontSize: 11, color: C.faint, fontFamily: mono, whiteSpace: "nowrap" }} title="Filtre local : masque les pronos déjà reçus, ne change pas les seuils serveur">conf. min {minConf} (local)</span>
         <input type="range" min="0" max="85" value={minConf} onChange={(e) => setMinConf(+e.target.value)} style={{ flex: 1 }} />
         {view === "all" && (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
@@ -256,28 +259,51 @@ function Predictions({ stake, isAdmin }) {
       {loading && items.length === 0 && <SkeletonCards />}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, fontFamily: mono, margin: "4px 0 8px" }}>
-        <span style={{ color: C.teal }}>{list.length} validé(s)</span>
-        <button onClick={() => setShowRejected((s) => !s)} style={{ ...textBtn, color: C.faint }}>écartés {showRejected ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</button>
+        <span style={{ color: C.teal }}>{isFallback ? 0 : list.length} pronostic(s) validé(s)</span>
+        <span style={{ color: C.faint }}>{rejected.length} analyse(s) rejetée(s)</span>
       </div>
 
-      {showRejected && (
-        <div style={{ marginBottom: 14, background: "rgba(138,148,166,0.06)", border: `1px dashed ${C.line}`, borderRadius: 12, padding: 12 }}>
-          <div style={{ fontSize: 11, color: C.faint, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><Ban size={12} /> Refusés automatiquement — qualité avant quantité</div>
-          {rejected.length === 0 ? <div style={{ fontSize: 12, color: C.faint }}>Aucun match écarté à venir.</div> :
-            rejected.slice(0, 30).map((m) => (
-              <div key={m.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "5px 0", fontSize: 12, borderTop: `1px solid ${C.line}` }}>
-                <span style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.match.home} vs {m.match.away}</span>
-                <span style={{ color: C.warn, flexShrink: 0, fontSize: 11 }}>{(m.rejectReasons && m.rejectReasons[0]) || "écarté"}</span>
-              </div>
-            ))}
+      {isFallback && (
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-start", background: "rgba(224,138,62,0.10)", border: "1px solid rgba(224,138,62,0.35)", borderRadius: 12, padding: "10px 12px", marginBottom: 12, fontSize: 12, color: "#f0c9a0", lineHeight: 1.5 }}>
+          <AlertTriangle size={15} color={C.warn} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span><b>Aucun pronostic n'a passé le filtre qualité.</b> Voici les 5 meilleurs candidats <b>rejetés</b>, affichés à titre informatif — faible confiance, mise déconseillée. Les raisons de rejet sont indiquées sur chaque carte.</span>
         </div>
       )}
 
       {!loading && list.length === 0 && <EmptyDiagnostic onRetry={load} isAdmin={isAdmin} />}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {list.map((p, i) => <PredCard key={p.id} p={p} rank={view === "top" ? i + 1 : null} onFollow={() => follow(p)} followed={followed.has(p.id)} />)}
+        {list.map((p, i) => <PredCard key={p.id} p={p} rank={!isFallback && view === "top" ? i + 1 : null} onFollow={() => follow(p)} followed={followed.has(p.id)} />)}
       </div>
+
+      {rejected.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <button onClick={() => setShowRejected((s) => !s)} style={{ width: "100%", background: "transparent", border: `1px dashed ${C.line}`, borderRadius: 12, padding: "11px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", color: C.faint, fontSize: 13, fontWeight: 600 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Ban size={14} /> Analyses rejetées ({rejected.length})</span>
+            {showRejected ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+          </button>
+          {showRejected && (
+            <div style={{ marginTop: 8, background: "rgba(138,148,166,0.06)", border: `1px dashed ${C.line}`, borderRadius: 12, padding: 12 }}>
+              <div style={{ fontSize: 11, color: C.faint, marginBottom: 8, lineHeight: 1.5 }}>
+                Matchs analysés mais refusés par le filtre qualité — qualité avant quantité. Ce ne sont PAS des pronostics jouables.
+              </div>
+              {rejected.slice(0, 40).map((m) => (
+                <div key={m.id} style={{ padding: "8px 0", borderTop: `1px solid ${C.line}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12 }}>
+                    <span style={{ color: C.muted, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.match.home} vs {m.match.away}</span>
+                    <span style={{ color: C.faint, fontFamily: mono, fontSize: 10, flexShrink: 0 }}>{fmtDT(m.match.commence)}</span>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>
+                    {(m.rejectReasons || []).slice(0, 3).map((r0, i) => (
+                      <span key={i} style={{ fontSize: 10, color: C.warn, border: "1px solid rgba(224,138,62,0.35)", borderRadius: 6, padding: "2px 6px" }}>{r0}</span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <Disclaimer />
     </div>
   );
@@ -401,6 +427,7 @@ function PredCard({ p, rank, onFollow, followed }) {
   return (
     <div style={{ background: C.surface, border: `1px solid ${rank ? "rgba(224,163,62,0.35)" : C.line}`, borderRadius: 14, overflow: "hidden" }}>
       {rank && <div style={{ height: 3, background: `linear-gradient(90deg, ${C.gold}, transparent)` }} />}
+      {p.fallback && <div style={{ background: "rgba(224,138,62,0.14)", color: C.warn, fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", padding: "5px 14px", display: "flex", alignItems: "center", gap: 6 }}><AlertTriangle size={11} /> Faible confiance — rejeté par le filtre qualité</div>}
       <div style={{ padding: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
           <div style={{ minWidth: 0 }}>
@@ -441,9 +468,17 @@ function PredCard({ p, rank, onFollow, followed }) {
           </div>
         )}
 
+        {p.fallback && (p.rejectReasons || []).length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 10 }}>
+            {p.rejectReasons.slice(0, 4).map((r0, i) => (
+              <span key={i} style={{ fontSize: 10, color: C.warn, border: "1px solid rgba(224,138,62,0.35)", borderRadius: 6, padding: "2px 6px" }}>{r0}</span>
+            ))}
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
           <button onClick={() => setOpen((o) => !o)} style={{ ...textBtn, flex: 1, justifyContent: "flex-start" }}>{open ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {open ? "Masquer" : "Détail"}</button>
-          <button onClick={onFollow} disabled={followed} style={{ ...followBtn, opacity: followed ? 0.6 : 1, color: followed ? C.teal : C.text }}>{followed ? <><Check size={14} /> Suivi</> : <><Plus size={14} /> Suivre</>}</button>
+          {!p.fallback && <button onClick={onFollow} disabled={followed} style={{ ...followBtn, opacity: followed ? 0.6 : 1, color: followed ? C.teal : C.text }}>{followed ? <><Check size={14} /> Suivi</> : <><Plus size={14} /> Suivre</>}</button>}
         </div>
 
         {open && (

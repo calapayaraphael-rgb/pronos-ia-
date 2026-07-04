@@ -49,6 +49,7 @@ async function runSync(type, fn) {
     if (out.sportsDetail?.length) details.sportsDetail = out.sportsDetail;
     if (out.skippedSports?.length) details.skippedSports = out.skippedSports;
     if (out.rawSample != null) details.rawSample = out.rawSample;
+    if (out.funnel) details.funnel = out.funnel;
     await finishLog(id, {
       status: partial ? "partial" : "success",
       message: out.message || (partial ? `Terminé avec ${out.errors.length} erreur(s)` : "OK"),
@@ -80,13 +81,14 @@ export function syncOdds() {
     const t = await ingestAllTracked();
     // Des matchs sont arrives : generer les pronos manquants immediatement
     // (sans attendre le cron des predictions).
-    let predictions = 0;
+    let predictions = 0, funnel = null;
     if (t.events > 0) {
-      try { predictions = await analyzeNew(); }
+      try { const r = await analyzeNew(); predictions = r.proposed; funnel = r.funnel; }
       catch (e) { t.errors.push({ error: `génération pronos: ${e.message}` }); }
     }
     return {
       counts: { events: t.events, odds: t.odds, predictions },
+      funnel,
       remaining: t.remaining,
       errors: t.errors,
       changedMatchIds: t.changed,
@@ -101,14 +103,23 @@ export function syncOdds() {
 export function syncScores() {
   return runSync("scores", async () => {
     const t = await settleAllTracked();
-    return { counts: {}, remaining: t.remaining, errors: t.errors, message: `${t.settled} paris réglés` };
+    return {
+      counts: {},
+      remaining: t.remaining,
+      errors: t.errors,
+      message: `${t.settled} paris réglés${t.skipped ? ` · ${t.skipped} scores ignorés (matchs non suivis)` : ""}`,
+    };
   });
 }
 
 export function syncPredictions() {
   return runSync("predictions", async () => {
-    const n = await analyzeNew();
-    return { counts: { predictions: n }, message: `${n} pronostics générés` };
+    const r = await analyzeNew();
+    return {
+      counts: { predictions: r.proposed },
+      funnel: r.funnel,
+      message: `${r.written} analyse(s) insérée(s) · ${r.proposed} validée(s) · ${r.written - r.proposed} rejetée(s)`,
+    };
   });
 }
 
@@ -118,15 +129,16 @@ export function syncFull() {
   return runSync("full", async () => {
     const sports = await ingestSports();
     const odds = await ingestAllTracked();
-    const predictions = await analyzeNew();
+    const r = await analyzeNew();
     return {
-      counts: { sports, events: odds.events, odds: odds.odds, predictions },
+      counts: { sports, events: odds.events, odds: odds.odds, predictions: r.proposed },
       remaining: odds.remaining,
       errors: odds.errors,
       sportsDetail: odds.sportsDetail,
       skippedSports: odds.skippedSports,
       rawSample: odds.rawSample,
-      message: `${sports} sports, ${odds.events} matchs, ${odds.odds} cotes, ${predictions} pronostics`,
+      funnel: r.funnel,
+      message: `${sports} sports, ${odds.events} matchs, ${odds.odds} cotes, ${r.proposed} pronostic(s) validé(s) (${r.written} analysés)`,
     };
   });
 }
