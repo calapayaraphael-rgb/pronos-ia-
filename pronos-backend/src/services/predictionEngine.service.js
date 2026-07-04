@@ -55,7 +55,7 @@ export function riskLevel({ bestOdds, edgePct, nBooks = 0, dispersion = 0 }) {
 }
 
 // Filtre qualite : renvoie { pass, reasons }. Priorite = refuser si doute.
-export function passesFilters({ edgePct, confidence, bestOdds, nBooks }, { minEdgePercent = 3, minConfidence = 60 } = {}) {
+export function passesFilters({ edgePct, confidence, bestOdds, nBooks }, { minEdgePercent = 0, minConfidence = 40 } = {}) {
   const reasons = [];
   if (edgePct == null || edgePct < minEdgePercent) reasons.push(`Edge insuffisant (< ${minEdgePercent}%)`);
   if (confidence == null || confidence < minConfidence) reasons.push(`Confiance insuffisante (< ${minConfidence})`);
