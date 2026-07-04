@@ -27,6 +27,17 @@ const Env = z.object({
   ODDS_FORMAT: z.string().default("decimal"),
   ODDS_DATE_FORMAT: z.string().default("iso"),
   TRACKED_SPORTS: z.string().default(""),
+  // Fenetre de recuperation des matchs a venir (jours) et nombre max de
+  // sports interroges par sync (protection du quota).
+  EVENT_WINDOW_DAYS: z.coerce.number().min(1).max(30).default(7),
+  MAX_TRACKED_SPORTS: z.coerce.number().min(1).max(30).default(10),
+
+  // Notifications Telegram (optionnel : sans ces deux variables, desactive)
+  TELEGRAM_BOT_TOKEN: z.string().default(""),
+  TELEGRAM_CHAT_ID: z.string().default(""),
+
+  // Bookmakers accessibles en France (badge frontend)
+  BOOKMAKERS_PRIORITY: z.string().default("winamax,betclic,unibet_fr,parionssport_fr"),
 
   ANTHROPIC_API_KEY: z.string().default(""),
   // CLAUDE_MODEL est l'alias documente ; ANTHROPIC_MODEL reste supporte.
@@ -112,9 +123,12 @@ if (e.JWT_SECRET.length < 16) {
 // The Odds API fait 32 caracteres ; "x" ou vide = non configuree).
 const plausibleKey = (k) => typeof k === "string" && k.length >= 16;
 
-// Sports suivis par defaut si TRACKED_SPORTS est vide : sans cette liste,
-// aucune cote n'est jamais recuperee et le site reste vide.
-const DEFAULT_TRACKED_SPORTS = [
+// Sports preferes quand TRACKED_SPORTS est vide. La selection finale est
+// DYNAMIQUE (voir resolveTrackedSports dans ingest.js) : seuls les sports
+// marques actifs par The Odds API sont interroges, et la liste est completee
+// par d'autres sports actifs populaires — sinon le site devient vide chaque
+// intersaison (ex. Ligue 1/NBA en juillet, Roland-Garros termine).
+export const PREFERRED_SPORTS = [
   "soccer_france_ligue_one",
   "soccer_epl",
   "soccer_spain_la_liga",
@@ -122,7 +136,9 @@ const DEFAULT_TRACKED_SPORTS = [
   "soccer_germany_bundesliga",
   "soccer_uefa_champs_league",
   "basketball_nba",
-  "tennis_atp_french_open",
+  "tennis_atp_wimbledon",
+  "mma_mixed_martial_arts",
+  "baseball_mlb",
 ];
 
 const tracked = e.TRACKED_SPORTS.split(",").map((s) => s.trim()).filter(Boolean);
@@ -130,7 +146,11 @@ const tracked = e.TRACKED_SPORTS.split(",").map((s) => s.trim()).filter(Boolean)
 export const config = {
   ...e,
   corsOrigins: (e.CORS_ORIGINS || e.CORS_ORIGIN).split(",").map((s) => s.trim()).filter(Boolean),
-  trackedSports: tracked.length ? tracked : DEFAULT_TRACKED_SPORTS,
+  // Liste explicite (env) — vide = selection dynamique des sports actifs.
+  trackedSportsExplicit: tracked,
+  trackedSports: tracked.length ? tracked : PREFERRED_SPORTS,
+  frBookmakers: (e.BOOKMAKERS_PRIORITY || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
+  hasTelegram: !!(e.TELEGRAM_BOT_TOKEN && e.TELEGRAM_CHAT_ID),
   ANTHROPIC_MODEL: e.CLAUDE_MODEL || e.ANTHROPIC_MODEL,
   hasOdds: plausibleKey(e.ODDS_API_KEY),
   hasAI: plausibleKey(e.ANTHROPIC_API_KEY),

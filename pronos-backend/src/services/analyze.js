@@ -4,6 +4,7 @@ import { fetchTeamNews } from "../providers/injuries.js";
 import { evMetrics, reliabilityScore, riskLevel, validate } from "../lib/analysis.js";
 import { computeMetrics, passesFilters } from "./predictionEngine.service.js";
 import { hasAI, claudeModel } from "./settings.service.js";
+import { notifyPrediction } from "./telegram.service.js";
 import { config } from "../config.js";
 import { log } from "../logger.js";
 
@@ -139,6 +140,16 @@ export async function analyzeMatches(matchIds, { reason } = {}) {
       );
       written++;
     });
+
+    // Notification Telegram (si configuree) pour les pronos a forte value.
+    if (v.proposed && filt.pass) {
+      notifyPrediction({
+        sport: m.group_name, league: m.league, home: m.home_team, away: m.away_team,
+        selection: pick.outcome, odds: pick.bestOdds, bookmaker: pick.bestBook,
+        edgePercent: eng.edgePercent, confidence, stakeUnits: eng.stakeUnits,
+        commenceTime: m.commence_time,
+      }).catch((e) => log.warn("telegram", e.message));
+    }
   }
   log.info("analyze", `${written} predictions`, reason ? `(${reason})` : "");
   return written;

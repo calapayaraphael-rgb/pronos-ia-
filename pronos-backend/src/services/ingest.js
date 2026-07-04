@@ -1,8 +1,56 @@
 import { query, withTx } from "../db.js";
 import { getSports, getOdds } from "../providers/oddsApi.js";
 import { consensusForMarket } from "../lib/analysis.js";
-import { config } from "../config.js";
+import { config, PREFERRED_SPORTS } from "../config.js";
 import { log } from "../logger.js";
+
+// Groupes de sports utilises pour completer la selection dynamique.
+const POPULAR_GROUPS = ["Soccer", "Basketball", "Tennis", "Baseball", "Mixed Martial Arts", "American Football", "Ice Hockey", "Boxing"];
+
+// Selection des sports a synchroniser, croisee avec les sports ACTIFS
+// retournes par The Odds API (table sports). Evite deux pieges :
+// 1. une cle morte/inactive (ex. tennis_atp_french_open apres Roland-Garros)
+//    qui gaspille du quota et ne renvoie jamais rien ;
+// 2. une liste entierement hors-saison (Ligue 1/NBA en juillet) -> site vide.
+export async function resolveTrackedSports() {
+  let active = [];
+  try {
+    const { rows } = await query(`SELECT key, group_name FROM sports WHERE active=true AND has_outrights=false`);
+    active = rows;
+  } catch (e) {
+    log.warn("tracked", "table sports illisible :", e.message);
+  }
+  // Table vide (sync sports jamais passee) : on tente la liste telle quelle.
+  if (!active.length) return { sports: config.trackedSports, skipped: [] };
+
+  const activeKeys = new Set(active.map((r) => r.key));
+
+  // Liste explicite via TRACKED_SPORTS : respectee, mais filtree aux actifs.
+  if (config.trackedSportsExplicit.length) {
+    const sports = config.trackedSportsExplicit.filter((k) => activeKeys.has(k));
+    const skipped = config.trackedSportsExplicit.filter((k) => !activeKeys.has(k));
+    if (skipped.length) log.warn("tracked", "sports ignorés (inactifs ou inconnus de The Odds API) :", skipped.join(", "));
+    return { sports, skipped };
+  }
+
+  // Selection dynamique : preferes actifs d'abord, puis completion par
+  // d'autres sports actifs des groupes populaires, dans la limite du quota.
+  const max = config.MAX_TRACKED_SPORTS;
+  const sports = PREFERRED_SPORTS.filter((k) => activeKeys.has(k));
+  const skipped = PREFERRED_SPORTS.filter((k) => !activeKeys.has(k));
+  if (sports.length < max) {
+    const chosen = new Set(sports);
+    for (const group of POPULAR_GROUPS) {
+      for (const r of active) {
+        if (sports.length >= max) break;
+        if (r.group_name === group && !chosen.has(r.key)) { sports.push(r.key); chosen.add(r.key); }
+      }
+    }
+  }
+  if (skipped.length) log.info("tracked", "sports préférés hors saison :", skipped.join(", "));
+  log.info("tracked", `sports synchronisés (${sports.length}) :`, sports.join(", "));
+  return { sports: sports.slice(0, max), skipped };
+}
 
 export async function ingestSports() {
   const { data } = await getSports();
@@ -24,11 +72,22 @@ function statusFromTime(iso) {
   return "terminé";
 }
 
-// Periode large par defaut : maintenant -> +7 jours
+// Fenetre configurable : maintenant -> +EVENT_WINDOW_DAYS jours (defaut 7).
 export async function ingestOddsForSport(sportKey) {
   const from = new Date();
-  const to = new Date(Date.now() + 7 * 86400000);
-  const { data, remaining } = await getOdds(sportKey, { from, to });
+  const to = new Date(Date.now() + config.EVENT_WINDOW_DAYS * 86400000);
+  let data, remaining, marketFallback = false;
+  try {
+    ({ data, remaining } = await getOdds(sportKey, { from, to }));
+  } catch (e) {
+    // 422 = marche non supporte pour ce sport (ex. spreads/totals absents) :
+    // on retente en h2h seul au lieu d'abandonner le sport.
+    if (e.status === 422 && config.ODDS_MARKETS !== "h2h") {
+      log.warn("ingest", sportKey, "marchés non supportés (422), nouvel essai en h2h seul");
+      ({ data, remaining } = await getOdds(sportKey, { from, to, markets: "h2h" }));
+      marketFallback = true;
+    } else throw e;
+  }
   const changed = [];
   let oddsCount = 0;
 
@@ -76,23 +135,34 @@ export async function ingestOddsForSport(sportKey) {
     });
   }
   log.info("ingest", sportKey, `${(data || []).length} matchs`, `req=${remaining}`);
-  return { count: (data || []).length, oddsCount, remaining, changed };
+  return { count: (data || []).length, oddsCount, remaining, changed, marketFallback, raw: data };
 }
 
-// Ingestion de tous les sports suivis. Retourne des compteurs pour le
-// journal de sync ; les erreurs par sport sont collectees, pas fatales.
+// Ingestion de tous les sports suivis (selection dynamique). Retourne des
+// compteurs + un detail PAR SPORT pour le journal de sync ; une erreur sur
+// un sport n'interrompt pas les autres (sauf cle invalide / quota epuise).
 export async function ingestAllTracked() {
-  const totals = { changed: [], events: 0, odds: 0, remaining: null, errors: [] };
-  for (const sk of config.trackedSports) {
+  const { sports, skipped } = await resolveTrackedSports();
+  const totals = { changed: [], events: 0, odds: 0, remaining: null, errors: [], sportsDetail: [], skippedSports: skipped, rawSample: null };
+  if (!sports.length) {
+    totals.errors.push({ error: "Aucun sport actif à synchroniser (lancez d'abord une sync sports, ou vérifiez TRACKED_SPORTS)." });
+    return totals;
+  }
+  for (const sk of sports) {
     try {
       const r = await ingestOddsForSport(sk);
       totals.changed.push(...r.changed);
       totals.events += r.count;
       totals.odds += r.oddsCount;
       if (r.remaining != null) totals.remaining = r.remaining;
+      totals.sportsDetail.push({ sport: sk, events: r.count, odds: r.oddsCount, ...(r.marketFallback ? { fallback: "h2h" } : {}) });
+      // Echantillon BRUT de la reponse API (1er sport, tronque) : permet de
+      // voir dans les logs admin si l'API renvoie vide ou si on filtre trop.
+      if (totals.rawSample == null) totals.rawSample = JSON.stringify(r.raw ?? []).slice(0, 1200);
     } catch (e) {
       log.error("ingest", sk, e.message);
       totals.errors.push({ sport: sk, error: e.message, code: e.code });
+      totals.sportsDetail.push({ sport: sk, events: 0, odds: 0, error: e.message });
       if (e.code === "ODDS_KEY_MISSING" || e.code === "ODDS_KEY_INVALID" || e.code === "ODDS_QUOTA_EXCEEDED") throw Object.assign(e, { totals });
     }
   }

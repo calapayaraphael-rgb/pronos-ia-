@@ -191,6 +191,7 @@ function Predictions({ stake, isAdmin }) {
   const [period, setPeriod] = useState("today");
   const [view, setView] = useState("top");
   const [sport, setSport] = useState("all");
+  const [frOnly, setFrOnly] = useState(false);
   const [sort, setSort] = useState("value");
   const [minConf, setMinConf] = useState(0);
   const [items, setItems] = useState([]);
@@ -220,7 +221,7 @@ function Predictions({ stake, isAdmin }) {
     catch (e) { setErr(e.message); }
   };
 
-  const list = items.filter((x) => x.confidence >= minConf);
+  const list = items.filter((x) => x.confidence >= minConf && (!frOnly || x.frBookmaker));
 
   return (
     <div style={{ padding: "0 16px 24px" }}>
@@ -234,6 +235,7 @@ function Predictions({ stake, isAdmin }) {
         {SPORTS.map((s) => { const on = sport === s.id; return (
           <button key={s.id} onClick={() => setSport(s.id)} style={{ ...pill, fontSize: 12, background: on ? C.surface2 : "transparent", color: on ? C.text : C.faint, borderColor: on ? C.line : "transparent", fontWeight: on ? 700 : 500 }}>{s.label}</button>
         ); })}
+        <button onClick={() => setFrOnly((v) => !v)} style={{ ...pill, fontSize: 12, background: frOnly ? C.surface2 : "transparent", color: frOnly ? C.teal : C.faint, borderColor: frOnly ? C.line : "transparent", fontWeight: frOnly ? 700 : 500 }}>🇫🇷 Bookmakers FR</button>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 2px 10px" }}>
         <Sliders size={13} color={C.faint} />
@@ -423,6 +425,7 @@ function PredCard({ p, rank, onFollow, followed }) {
           <div style={{ textAlign: "right", flexShrink: 0 }}>
             <div style={{ fontFamily: mono, fontSize: 18, fontWeight: 700 }}>{p.odds.toFixed(2)}</div>
             {p.bestBookmaker && <div style={{ fontSize: 10, color: C.faint, fontFamily: mono }}>{p.bestBookmaker}</div>}
+            {p.frBookmaker && <div style={{ fontSize: 9, color: C.teal, fontWeight: 700, marginTop: 2 }}>🇫🇷 dispo en France</div>}
           </div>
         </div>
 
@@ -578,7 +581,7 @@ function Dashboard() {
       {/* bankroll */}
       <div style={{ marginTop: 16, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>Bankroll</div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>Ma bankroll réelle (paris suivis)</div>
           <div style={{ fontSize: 11, color: C.faint, fontFamily: mono }}>drawdown max −{d.maxDrawdown}u</div>
         </div>
         <Spark points={d.bankrollCurve.map((p) => p.bankroll)} start={d.startBankroll} />
@@ -687,7 +690,8 @@ function AdminScreen() {
           <Tile label="Modèle IA" value={status.model || "engine only"} />
           <Tile label="Quota API restant" value={status.quotaRemaining != null ? String(status.quotaRemaining) : "inconnu"} color={status.quotaRemaining === 0 ? C.danger : undefined} />
           <Tile label="Régions / marchés" value={`${status.regions} · ${status.markets}`} />
-          <Tile label="Sync auto" value={`${status.syncIntervalMinutes} min`} />
+          <Tile label="Sync auto" value={`${status.syncIntervalMinutes} min · fenêtre ${status.eventWindowDays ?? 7} j`} />
+          <Tile label="Telegram" value={status.telegramConfigured ? "configuré" : "non configuré"} color={status.telegramConfigured ? C.green : C.faint} />
         </div>
         <div style={{ fontSize: 11, color: C.faint, marginTop: 10, lineHeight: 1.5 }}>Sports suivis : {status.trackedSports.join(", ")}</div>
       </div>
@@ -718,6 +722,7 @@ function AdminScreen() {
         <button onClick={() => run("predictions", "Génération pronos")} disabled={!!busy} style={{ ...adminBtn, opacity: busy ? 0.6 : 1 }}>{busy === "predictions" ? "…" : "Générer pronos IA"}</button>
         <button onClick={() => run("sports", "Sync sports")} disabled={!!busy} style={{ ...adminBtn, opacity: busy ? 0.6 : 1 }}>{busy === "sports" ? "…" : "Sync sports"}</button>
         <button onClick={() => run("scores", "Sync scores")} disabled={!!busy} style={{ ...adminBtn, opacity: busy ? 0.6 : 1 }}>{busy === "scores" ? "…" : "Sync scores"}</button>
+        <button onClick={async () => { setBusy("telegram"); setMsg(""); try { await api.post("/admin/config/test-telegram"); setMsg("Telegram : message de test envoyé ✓"); } catch (e) { setMsg(`Telegram — échec : ${e.message}`); } finally { setBusy(""); } }} disabled={!!busy} style={{ ...adminBtn, gridColumn: "1 / -1", opacity: busy ? 0.6 : 1 }}>{busy === "telegram" ? "…" : "Tester Telegram"}</button>
       </div>
       {msg && <div style={{ fontSize: 12, color: msg.includes("échec") ? C.danger : C.green, marginTop: 10 }}>{msg}</div>}
 
@@ -737,7 +742,19 @@ function AdminScreen() {
             {l.quota_remaining != null && ` · quota ${l.quota_remaining}`}
             {` · ${l.sports_count || 0} sports · ${l.events_count || 0} matchs · ${l.odds_count || 0} cotes · ${l.predictions_count || 0} pronos`}
           </div>
-          {l.error_details && <div style={{ fontSize: 10, color: C.danger, fontFamily: mono, marginTop: 3, overflowX: "auto" }}>{JSON.stringify(l.error_details)}</div>}
+          {l.error_details?.sportsDetail && (
+            <div style={{ fontSize: 10, color: C.muted, fontFamily: mono, marginTop: 4 }}>
+              {l.error_details.sportsDetail.map((s, i) => (
+                <div key={i} style={{ color: s.error ? C.danger : C.muted }}>
+                  {s.sport} : {s.error ? s.error : `${s.events} matchs · ${s.odds} cotes${s.fallback ? " (h2h seul)" : ""}`}
+                </div>
+              ))}
+              {l.error_details.skippedSports?.length > 0 && <div style={{ color: C.faint }}>hors saison : {l.error_details.skippedSports.join(", ")}</div>}
+            </div>
+          )}
+          {l.error_details?.rawSample && <div style={{ fontSize: 9, color: C.faint, fontFamily: mono, marginTop: 3, maxHeight: 60, overflow: "auto", wordBreak: "break-all" }}>API brut : {l.error_details.rawSample}</div>}
+          {l.error_details?.errors && <div style={{ fontSize: 10, color: C.danger, fontFamily: mono, marginTop: 3, overflowX: "auto" }}>{JSON.stringify(l.error_details.errors)}</div>}
+          {l.error_details && !l.error_details.sportsDetail && !l.error_details.errors && !l.error_details.rawSample && <div style={{ fontSize: 10, color: C.danger, fontFamily: mono, marginTop: 3, overflowX: "auto" }}>{JSON.stringify(l.error_details)}</div>}
         </div>
       ))}
       <Disclaimer />
