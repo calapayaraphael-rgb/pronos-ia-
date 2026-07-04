@@ -32,7 +32,8 @@ async function finishLog(id, { status, message, counts = {}, quota = null, error
 export function friendlyError(e) {
   if (e?.code === "ODDS_KEY_MISSING") return "Clé ODDS_API_KEY absente ou invalide. Ajoutez une vraie clé dans les variables d'environnement Render.";
   if (e?.code === "ODDS_KEY_INVALID") return "Clé ODDS_API_KEY refusée par The Odds API (401). Vérifiez la clé.";
-  if (e?.code === "ODDS_QUOTA_EXCEEDED") return "Quota The Odds API épuisé (429). Attendez le renouvellement mensuel ou changez de plan.";
+  if (e?.code === "ODDS_QUOTA_EXCEEDED") return "Quota mensuel The Odds API épuisé (429). Attendez le renouvellement ou passez sur un plan supérieur — réduisez aussi ODDS_REGIONS/ODDS_MARKETS (coût = régions × marchés par appel).";
+  if (e?.code === "ODDS_RATE_LIMITED") return "The Odds API limite la fréquence des appels (429) : réessayez dans une minute.";
   return e?.message || "Erreur inconnue";
 }
 

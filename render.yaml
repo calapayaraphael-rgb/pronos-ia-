@@ -38,10 +38,13 @@ services:
         sync: false                # OBLIGATOIRE — demandé au déploiement
       # TRACKED_SPORTS : optionnel. Non défini = liste par défaut
       # (Ligue 1, EPL, Liga, Serie A, Bundesliga, LdC, NBA, tennis).
+      # Cout The Odds API = regions x marches PAR APPEL. Plan gratuit 500
+      # credits/mois : rester sur eu + h2h (1 credit/sport). N'elargissez
+      # (eu,uk / h2h,spreads,totals) qu'avec un plan paye.
       - key: ODDS_REGIONS
-        value: eu,uk
+        value: eu
       - key: ODDS_MARKETS
-        value: h2h,spreads,totals
+        value: h2h
       - key: ODDS_FORMAT
         value: decimal
       - key: ODDS_DATE_FORMAT
@@ -52,6 +55,8 @@ services:
         value: "7"
       - key: MAX_TRACKED_SPORTS
         value: "10"
+      - key: QUOTA_MIN_RESERVE
+        value: "25"
       - key: BOOKMAKERS_PRIORITY
         value: winamax,betclic,unibet_fr,parionssport_fr
       - key: TELEGRAM_BOT_TOKEN

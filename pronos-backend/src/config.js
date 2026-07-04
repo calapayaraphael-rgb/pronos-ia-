@@ -22,7 +22,7 @@ const Env = z.object({
   BOOTSTRAP_ADMIN_PASSWORD: z.string().optional(),
 
   ODDS_API_KEY: z.string().default(""),
-  ODDS_REGIONS: z.string().default("eu,uk"),
+  ODDS_REGIONS: z.string().default("eu"),
   ODDS_MARKETS: z.string().default("h2h"),
   ODDS_FORMAT: z.string().default("decimal"),
   ODDS_DATE_FORMAT: z.string().default("iso"),
@@ -31,6 +31,9 @@ const Env = z.object({
   // sports interroges par sync (protection du quota).
   EVENT_WINDOW_DAYS: z.coerce.number().min(1).max(30).default(7),
   MAX_TRACKED_SPORTS: z.coerce.number().min(1).max(30).default(10),
+  // Le scheduler saute les syncs automatiques sous ce seuil de credits
+  // restants (les syncs manuelles depuis l'admin restent possibles).
+  QUOTA_MIN_RESERVE: z.coerce.number().min(0).default(25),
 
   // Notifications Telegram (optionnel : sans ces deux variables, desactive)
   TELEGRAM_BOT_TOKEN: z.string().default(""),
