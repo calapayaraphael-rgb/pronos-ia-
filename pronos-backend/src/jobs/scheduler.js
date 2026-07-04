@@ -7,6 +7,11 @@ import { hasOdds } from "../services/settings.service.js";
 import { recompute } from "../services/analyze.js";
 import { captureClosingLines } from "../services/closing.js";
 import { telegramEnabled, sendDailySummary } from "../services/telegram.service.js";
+import { lastQuota } from "../providers/oddsApi.js";
+
+// Protege le quota mensuel : les jobs automatiques s'arretent sous le seuil
+// de reserve (une sync manuelle depuis l'admin reste toujours possible).
+const quotaLow = () => lastQuota.remaining != null && lastQuota.remaining < config.QUOTA_MIN_RESERVE;
 
 const LOCK = { odds: 101, closing: 102, results: 103, injuries: 104, predictions: 105, telegram: 106 };
 
@@ -70,6 +75,7 @@ export function startScheduler() {
   // Toutes les SYNC_INTERVAL_MINUTES : cotes + recalcul sur mouvement.
   cron.schedule(oddsCron, () => runJob("poll_odds", LOCK.odds, async () => {
     if (!hasOdds()) return { skippedReason: "cle absente" };
+    if (quotaLow()) return { skippedReason: `quota bas (${lastQuota.remaining} restants, réserve ${config.QUOTA_MIN_RESERVE})` };
     const out = await syncOdds();
     let recalculated = 0;
     if (out.ok && out.changedMatchIds?.length) recalculated = await recompute([...new Set(out.changedMatchIds)], "mouvement de cote");
@@ -88,6 +94,7 @@ export function startScheduler() {
   // Toutes les 60 min : scores + reglement automatique.
   cron.schedule(config.POLL_RESULTS_CRON, () => runJob("poll_results", LOCK.results, async () => {
     if (!hasOdds()) return { skippedReason: "cle absente" };
+    if (quotaLow()) return { skippedReason: `quota bas (${lastQuota.remaining} restants)` };
     const out = await syncScores();
     return { status: out.status };
   }));

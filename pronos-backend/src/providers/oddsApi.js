@@ -7,7 +7,15 @@ const BASE = "https://api.the-odds-api.com/v4";
 // admin sans re-consommer de requete.
 export let lastQuota = { remaining: null, used: null, at: null };
 
-async function get(path) {
+// 429 : distingue la limite de FREQUENCE (rafale d'appels -> reessayer)
+// de l'epuisement des CREDITS mensuels (inutile de reessayer).
+export function classify429(body) {
+  return /freq|frequency|too many|rate/i.test(body || "") ? "ODDS_RATE_LIMITED" : "ODDS_QUOTA_EXCEEDED";
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function get(path, attempt = 0) {
   if (!hasOdds()) {
     const err = new Error("ODDS_API_KEY absente : ajoutez-la dans Render Environment ou depuis la page Admin (Configuration API).");
     err.code = "ODDS_KEY_MISSING";
@@ -19,9 +27,15 @@ async function get(path) {
   const used = res.headers.get("x-requests-used");
   if (remaining != null) lastQuota = { remaining: Number(remaining), used: used != null ? Number(used) : null, at: new Date().toISOString() };
   if (!res.ok) {
-    const body = (await res.text()).slice(0, 160);
+    const body = (await res.text()).slice(0, 200);
+    const code = res.status === 401 ? "ODDS_KEY_INVALID" : res.status === 429 ? classify429(body) : "ODDS_API_ERROR";
+    // Limite de frequence : attendre puis reessayer (2 tentatives max).
+    if (code === "ODDS_RATE_LIMITED" && attempt < 2) {
+      await sleep(2000 * (attempt + 1));
+      return get(path, attempt + 1);
+    }
     const err = new Error(`OddsAPI ${res.status}: ${body}`);
-    err.code = res.status === 401 ? "ODDS_KEY_INVALID" : res.status === 429 ? "ODDS_QUOTA_EXCEEDED" : "ODDS_API_ERROR";
+    err.code = code;
     err.status = res.status;
     throw err;
   }

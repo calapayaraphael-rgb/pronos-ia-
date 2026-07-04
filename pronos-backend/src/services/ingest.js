@@ -148,7 +148,11 @@ export async function ingestAllTracked() {
     totals.errors.push({ error: "Aucun sport actif à synchroniser (lancez d'abord une sync sports, ou vérifiez TRACKED_SPORTS)." });
     return totals;
   }
+  let i = 0;
   for (const sk of sports) {
+    // Espacement des appels : evite la limite de frequence de The Odds API
+    // (le 429 en rafale interrompait toute la sync).
+    if (i++ > 0) await new Promise((r) => setTimeout(r, 1200));
     try {
       const r = await ingestOddsForSport(sk);
       totals.changed.push(...r.changed);
@@ -163,7 +167,14 @@ export async function ingestAllTracked() {
       log.error("ingest", sk, e.message);
       totals.errors.push({ sport: sk, error: e.message, code: e.code });
       totals.sportsDetail.push({ sport: sk, events: 0, odds: 0, error: e.message });
-      if (e.code === "ODDS_KEY_MISSING" || e.code === "ODDS_KEY_INVALID" || e.code === "ODDS_QUOTA_EXCEEDED") throw Object.assign(e, { totals });
+      // Credits mensuels epuises : on ARRETE proprement en gardant les
+      // donnees deja recuperees (sync "partial", pas "error").
+      if (e.code === "ODDS_QUOTA_EXCEEDED") {
+        totals.errors.push({ error: "Quota mensuel The Odds API épuisé : sync interrompue, les sports restants seront traités au prochain renouvellement." });
+        break;
+      }
+      // Cle absente/invalide : tous les sports echoueraient -> erreur franche.
+      if (e.code === "ODDS_KEY_MISSING" || e.code === "ODDS_KEY_INVALID") throw Object.assign(e, { totals });
     }
   }
   return totals;

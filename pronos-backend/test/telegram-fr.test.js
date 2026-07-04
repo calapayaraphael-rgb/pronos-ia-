@@ -50,3 +50,13 @@ test("résumé quotidien : compte + top 3", () => {
   assert.ok(msg.includes("1. A vs B"));
   assert.ok(msg.includes("2. C vs D"));
 });
+
+const { classify429 } = await import("../src/providers/oddsApi.js");
+
+test("429 : distinction fréquence vs crédits épuisés", () => {
+  assert.equal(classify429("Requests too frequent, EXCEEDED_FREQ_LIMIT"), "ODDS_RATE_LIMITED");
+  assert.equal(classify429("You have made too many requests"), "ODDS_RATE_LIMITED");
+  assert.equal(classify429("OUT_OF_USAGE_CREDITS: usage quota reached"), "ODDS_QUOTA_EXCEEDED");
+  assert.equal(classify429("OUT_OF_USAGE_CREDITS"), "ODDS_QUOTA_EXCEEDED");
+  assert.equal(classify429(""), "ODDS_QUOTA_EXCEEDED");
+});
