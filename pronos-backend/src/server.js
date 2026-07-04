@@ -32,6 +32,12 @@ app.post("/api/v1/billing/webhook", express.raw({ type: "*/*" }), async (req, re
 });
 
 app.use(express.json({ limit: "1mb" }));
+
+// Routes racine : verification rapide dans le navigateur et reveil du
+// service Render. Declarees AVANT le 404 ; l'API reste sous /api/v1.
+app.get("/", (req, res) => res.json({ ok: true, service: "pronos-backend", api: "/api/v1" }));
+app.get("/health", (req, res) => res.json({ ok: true }));
+
 app.use("/api/v1", rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false }));
 app.use("/api/v1", routes);
 
