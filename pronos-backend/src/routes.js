@@ -162,7 +162,24 @@ async function listPredictions(q) {
   else if (q.sort === "odds") list.sort((a, b) => b.odds - a.odds);
   else if (q.sort === "value") list.sort((a, b) => (b.valueScore ?? 0) - (a.valueScore ?? 0));
 
-  return list.slice(0, q.limit ?? 50);
+  list = list.slice(0, q.limit ?? 50);
+
+  // FALLBACK « faible confiance » : si AUCUN prono valide sur la fenetre
+  // (vues top/all uniquement), renvoyer les 5 meilleurs candidats REJETES,
+  // marques fallback:true. Jamais presentes comme surs : les raisons de
+  // rejet restent attachees et le frontend les affiche clairement.
+  if (!list.length && (view === "top" || view === "all")) {
+    const { rows: rej } = await query(
+      `SELECT p.*, m.league, m.home_team, m.away_team, m.commence_time, m.status, m.sport_key
+       FROM predictions p JOIN matches m ON m.id=p.match_id
+       WHERE p.superseded=false AND p.proposed=false AND m.commence_time BETWEEN $1 AND $2
+       ORDER BY p.value_score DESC NULLS LAST, p.confidence DESC LIMIT 5`,
+      [from, to]
+    );
+    return rej.map(predRow).map((x) => ({ ...x, fallback: true, stakeUnits: 0 }));
+  }
+
+  return list;
 }
 
 // pronostics VALIDES uniquement (le filtre qualite refuse le reste)
@@ -348,12 +365,12 @@ r.get("/admin/sync/logs", wrap(async (req, res) => res.json(await listSyncLogs(N
 // jobs manuels historiques (conserves)
 r.post("/admin/jobs/:job", wrap(async (req, res) => {
   const job = req.params.job;
-  if (job === "odds") { const out = await syncOdds(); const a = await analyzeNew(); return res.json({ ...out, analyzed: a }); }
+  if (job === "odds") { const out = await syncOdds(); return res.json(out); }
   if (job === "sports") return res.json(await syncSports());
   if (job === "results") return res.json(await syncScores());
   if (job === "closing") return res.json({ captured: await captureClosingLines() });
-  if (job === "analyze") return res.json({ analyzed: await analyzeNew() });
-  if (job === "recompute" && Array.isArray(req.body.matchIds)) return res.json({ recalculated: await recompute(req.body.matchIds.slice(0, 50).map(String), "manuel") });
+  if (job === "analyze") return res.json(await analyzeNew());
+  if (job === "recompute" && Array.isArray(req.body.matchIds)) return res.json(await recompute(req.body.matchIds.slice(0, 50).map(String), "manuel"));
   return res.status(400).json({ error: "job inconnu" });
 }));
 

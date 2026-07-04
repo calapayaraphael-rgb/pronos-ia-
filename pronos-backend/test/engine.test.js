@@ -55,9 +55,10 @@ test("filtres qualité : cotes extrêmes et peu de books refusés", () => {
   assert.equal(passesFilters({ edgePct: 2, confidence: 70, bestOdds: 2, nBooks: 6 }, opts).pass, false); // edge trop faible
   assert.equal(passesFilters({ edgePct: 5, confidence: 50, bestOdds: 2, nBooks: 6 }, opts).pass, false); // confiance trop faible
   assert.equal(passesFilters({ edgePct: 5, confidence: 70, bestOdds: 1.2, nBooks: 6 }, opts).pass, false); // cote < 1.25
-  assert.equal(passesFilters({ edgePct: 5, confidence: 70, bestOdds: 6, nBooks: 6 }, opts).pass, false); // cote > 5 sans value forte
-  assert.equal(passesFilters({ edgePct: 9, confidence: 70, bestOdds: 6, nBooks: 6 }, opts).pass, true); // cote > 5 mais value très forte
-  assert.equal(passesFilters({ edgePct: 5, confidence: 70, bestOdds: 2, nBooks: 2 }, opts).pass, false); // trop peu de books
+  assert.equal(passesFilters({ edgePct: 5, confidence: 70, bestOdds: 11, nBooks: 6 }, opts).pass, false); // cote > 10 sans value très forte
+  assert.equal(passesFilters({ edgePct: 11, confidence: 70, bestOdds: 11, nBooks: 6 }, opts).pass, true); // cote > 10 mais value très forte
+  assert.equal(passesFilters({ edgePct: 5, confidence: 70, bestOdds: 6, nBooks: 6 }, opts).pass, true); // cote 6 acceptée (seuil assoupli à 10)
+  assert.equal(passesFilters({ edgePct: 5, confidence: 70, bestOdds: 2, nBooks: 0 }, opts).pass, false); // aucun bookmaker
 });
 
 test("computeMetrics : cohérence globale", () => {

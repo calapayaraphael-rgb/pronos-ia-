@@ -49,12 +49,16 @@ const Env = z.object({
 
   API_FOOTBALL_KEY: z.string().default(""),
 
-  MIN_RELIABILITY: z.coerce.number().default(60),
-  MIN_EV: z.coerce.number().default(0.02),
-  MIN_EDGE_PERCENT: z.coerce.number().default(3),
-  MIN_CONFIDENCE: z.coerce.number().default(60),
+  // Seuils de validation ASSOUPLIS par defaut : les anciens (fiabilite 60,
+  // confiance 60, edge 3%, risque moyen max) se cumulaient et rejetaient
+  // 100% des candidats -> site vide malgre 50+ matchs et 60k+ cotes.
+  // Resserre-les via ces variables d'env une fois la chaine validee.
+  MIN_RELIABILITY: z.coerce.number().default(45),
+  MIN_EV: z.coerce.number().default(0),
+  MIN_EDGE_PERCENT: z.coerce.number().default(0),
+  MIN_CONFIDENCE: z.coerce.number().default(40),
   MAX_PRONOS_PER_SYNC: z.coerce.number().default(30),
-  MAX_RISK: z.enum(["faible", "moyen", "élevé"]).default("moyen"),
+  MAX_RISK: z.enum(["faible", "moyen", "élevé"]).default("élevé"),
   START_BANKROLL: z.coerce.number().default(100),
 
   JOBS_ENABLED: boolEnv(true),

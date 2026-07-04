@@ -20,10 +20,16 @@ function decide(scores, pick) {
 
 export async function settleSport(sportKey) {
   const { data, remaining } = await getScores(sportKey, 3);
-  let settled = 0;
+  let settled = 0, skipped = 0, gameErrors = 0;
   for (const g of data || []) {
     if (!g.completed || !g.scores) continue;
+    // L'API scores renvoie aussi des matchs jamais ingeres cote cotes
+    // (commences avant la 1re sync, sports retires…). Sans ce controle,
+    // l'INSERT results violait la FK matches et cassait toute la sync.
+    const { rows: known } = await query(`SELECT 1 FROM matches WHERE id=$1`, [g.id]);
+    if (!known.length) { skipped++; continue; }
     const scores = g.scores.map((s) => ({ name: s.name, score: s.score }));
+    try {
     await withTx(async (c) => {
       await c.query(`UPDATE matches SET status='terminé', completed=true WHERE id=$1`, [g.id]);
       // resultat
@@ -58,13 +64,18 @@ export async function settleSport(sportKey) {
         if (d) await c.query(`UPDATE predictions SET outcome_result=$2 WHERE id=$1`, [p.id, d.isDraw && !/^(draw|nul)/i.test(p.pick_outcome) ? "nul" : d.won ? "gagné" : "perdu"]);
       }
     });
+    } catch (e) {
+      // Un match en echec ne bloque pas le reglement des autres.
+      gameErrors++;
+      log.error("settle", sportKey, g.id, e.message);
+    }
   }
-  log.info("settle", sportKey, `${settled} paris regles`, `req=${remaining}`);
-  return { settled, remaining };
+  log.info("settle", sportKey, `${settled} paris regles`, skipped ? `${skipped} scores ignores (matchs non suivis)` : "", `req=${remaining}`);
+  return { settled, skipped, gameErrors, remaining };
 }
 
 export async function settleAllTracked() {
-  const totals = { settled: 0, remaining: null, errors: [] };
+  const totals = { settled: 0, skipped: 0, remaining: null, errors: [] };
   // Sports des matchs recents en base (plus fiable que la liste statique :
   // couvre aussi les sports ajoutes dynamiquement).
   const { rows } = await query(
@@ -75,7 +86,9 @@ export async function settleAllTracked() {
     try {
       const r = await settleSport(sk);
       totals.settled += r.settled;
+      totals.skipped += r.skipped;
       if (r.remaining != null) totals.remaining = r.remaining;
+      if (r.gameErrors) totals.errors.push({ sport: sk, error: `${r.gameErrors} match(s) en erreur au règlement` });
     } catch (e) {
       log.error("settle", sk, e.message);
       totals.errors.push({ sport: sk, error: e.message });

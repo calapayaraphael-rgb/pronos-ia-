@@ -78,7 +78,7 @@ export function startScheduler() {
     if (quotaLow()) return { skippedReason: `quota bas (${lastQuota.remaining} restants, réserve ${config.QUOTA_MIN_RESERVE})` };
     const out = await syncOdds();
     let recalculated = 0;
-    if (out.ok && out.changedMatchIds?.length) recalculated = await recompute([...new Set(out.changedMatchIds)], "mouvement de cote");
+    if (out.ok && out.changedMatchIds?.length) recalculated = (await recompute([...new Set(out.changedMatchIds)], "mouvement de cote")).written;
     return { status: out.status, events: out.counts?.events, recalculated };
   }));
 

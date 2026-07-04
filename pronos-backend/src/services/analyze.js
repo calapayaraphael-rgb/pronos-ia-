@@ -42,9 +42,19 @@ async function trackString() {
     "\nSois plus prudent sur les sports a ROI negatif AVEC n>=20.";
 }
 
+const emptyFunnel = (extra = {}) => ({
+  matchsCandidats: 0, avecConsensus: 0, candidatsGeneres: 0, inseres: 0,
+  valides: 0, rejetes: 0, raisonsRejet: {}, topCandidats: [], ...extra,
+});
+
 // Analyse un lot de matchs (par leur id) et ecrit les predictions.
+// Retourne un "funnel" complet : combien de matchs a chaque etape, pourquoi
+// les candidats sont rejetes, et les 10 meilleurs candidats — visible dans
+// les logs Render ET dans sync_logs (admin) pour ne plus jamais avoir un
+// "0 pronostics" inexplicable.
 export async function analyzeMatches(matchIds, { reason } = {}) {
-  if (!matchIds.length) return 0;
+  const funnel = emptyFunnel({ matchsCandidats: matchIds.length });
+  if (!matchIds.length) return { written: 0, proposed: 0, funnel };
   const { rows: matches } = await query(
     `SELECT m.*, s.group_name FROM matches m JOIN sports s ON s.key=m.sport_key WHERE m.id = ANY($1)`,
     [matchIds]
@@ -69,7 +79,11 @@ export async function analyzeMatches(matchIds, { reason } = {}) {
 
     contexts.push({ m, cons, news, rel, freshness, dispersion });
   }
-  if (!contexts.length) return 0;
+  funnel.avecConsensus = contexts.length;
+  if (!contexts.length) {
+    log.warn("analyze", "aucun match avec consensus de cotes (odds_consensus vide pour ces matchs)");
+    return { written: 0, proposed: 0, funnel };
+  }
 
   // Appel IA groupe (si configure)
   let aiByMatch = {};
@@ -141,6 +155,24 @@ export async function analyzeMatches(matchIds, { reason } = {}) {
       written++;
     });
 
+    funnel.candidatsGeneres++;
+    const isProposed = v.proposed && filt.pass;
+    if (isProposed) funnel.valides++;
+    else {
+      funnel.rejetes++;
+      for (const reason0 of [...v.reasons, ...filt.reasons]) {
+        funnel.raisonsRejet[reason0] = (funnel.raisonsRejet[reason0] || 0) + 1;
+      }
+    }
+    funnel.topCandidats.push({
+      match: `${m.home_team} vs ${m.away_team}`, sport: m.sport_key, pick: pick.outcome,
+      bestOdds: +pick.bestOdds.toFixed(2), bestBook: pick.bestBook, nBooks: pick.nBooks,
+      fairProb: +pick.fairProb.toFixed(3), estProb: +estProb.toFixed(3),
+      edgePercent: eng.edgePercent, evSubjective: +ev.evSubjective.toFixed(4),
+      evObjective: +ev.evObjective.toFixed(4), confidence, reliability: rel.score,
+      risk, proposed: isProposed, rejectReasons: isProposed ? [] : [...v.reasons, ...filt.reasons],
+    });
+
     // Notification Telegram (si configuree) pour les pronos a forte value.
     if (v.proposed && filt.pass) {
       notifyPrediction({
@@ -151,8 +183,12 @@ export async function analyzeMatches(matchIds, { reason } = {}) {
       }).catch((e) => log.warn("telegram", e.message));
     }
   }
-  log.info("analyze", `${written} predictions`, reason ? `(${reason})` : "");
-  return written;
+  funnel.inseres = written;
+  funnel.topCandidats.sort((a, b) => (b.edgePercent ?? -99) - (a.edgePercent ?? -99));
+  funnel.topCandidats = funnel.topCandidats.slice(0, 10);
+  log.info("analyze funnel", JSON.stringify({ ...funnel, topCandidats: undefined }));
+  log.info("analyze top candidats", JSON.stringify(funnel.topCandidats));
+  return { written, proposed: funnel.valides, funnel };
 }
 
 // Matchs a venir sans prediction active -> a analyser.
@@ -165,7 +201,10 @@ export async function analyzeNew() {
      ORDER BY m.commence_time LIMIT $1`,
     [config.MAX_PRONOS_PER_SYNC]
   );
-  return analyzeMatches(rows.map((r) => r.id), { reason: "nouvelle analyse" });
+  log.info("analyze", `${rows.length} match(s) à venir sans prédiction active`);
+  const out = await analyzeMatches(rows.map((r) => r.id), { reason: "nouvelle analyse" });
+  out.funnel.matchsAVenirSansPrediction = rows.length;
+  return out;
 }
 
 export async function recompute(matchIds, reason) {
